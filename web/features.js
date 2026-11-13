@@ -671,3 +671,156 @@ document.addEventListener('click', e => {
     closeSheet(); render(); window.scrollTo(0,0);
   }
 });
+
+
+/* ---------- Woche: durchgehende Ansicht über mehrere Wochen ---------- */
+let showPrevWeek = false;
+function lastPlanDate(){ return SNAP.events.map(e=>dateOf(e.start_date_local)).sort().pop() || TODAY; }
+function weekBlock(mon){
+  const wi = weekInfo(mon);
+  const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
+  const thisMon = monday(TODAY);
+  const title = mon === thisMon ? 'Diese Woche' : mon === addDays(thisMon,7) ? 'Nächste Woche' : mon === addDays(thisMon,-7) ? 'Letzte Woche' : `${shortD(mon)} – ${shortD(addDays(mon,6))}`;
+  let h = `<div class="weeksep"><div class="row"><h2>${title}</h2><span class="small muted">${mon<=TODAY?`Belastung ${wi.done} von ${wi.planned}`:`geplant ${wi.planned}`}</span></div>${mon<=TODAY?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}</div>`;
+  for (const d of wi.days){
+    const evs = wi.evs.filter(e=>e.date===d);
+    h += `<div class="wday" data-day="${d}"><p class="lbl${d===TODAY?' today':''}">${nice(d)}${d===TODAY?' · heute':''}</p>`;
+    if (!evs.length) h += `<p class="empty">Ruhetag</p>`;
+    for (const ev of evs){
+      const st = statusOf(ev);
+      const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
+      const meta = st.s==='done' && st.act ? (isRun(st.act.type) ? `${(st.act.distance/1000).toFixed(1)} km · ${mins(st.act.moving_time)} min · ${paceStr(st.act.average_speed)} /km` : `${st.act.name} · ${mins(st.act.moving_time)} min`) : `${ev.cat.name}${ev.dur?` · ${mins(ev.dur)} min`:''}${ev.variant?` · ${VARIANTS[ev.variant]}`:''}${ev.extra?` · +${mins(ev.extra)} min Ausgleich`:''}${ST.moves[ev.id]?' · verschoben':''}`;
+      const movable = st.s!=='done' && ev.date >= TODAY;
+      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"${movable?' data-drag="1"':''}><span class="stripe" style="background:${ev.cat.col}"></span><span class="t"><span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
+    }
+    h += `</div>`;
+  }
+  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
+  if (extras.length){
+    h += `<div class="wday"><p class="lbl">Zusätzlich trainiert</p>`;
+    for (const a of extras) h += `<div class="ev done"><span class="stripe" style="background:var(--line)"></span><span class="t"><span class="n">${esc(a.name)}</span><span class="m">${nice(dateOf(a.start_date_local))} · ${esc(a.type)} · ${mins(a.moving_time)} min</span></span><span class="st muted">${a.icu_training_load??''}</span></div>`;
+    h += `</div>`;
+  }
+  return h;
+}
+function viewWeek(){
+  let h = topBar();
+  h += `<a href="#ziel" class="btn ghost" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Neuen Plan erstellen</a>`;
+  h += `<p class="small muted" style="text-align:center">Kurz tippen für Details · lange drücken zum Verschieben</p>`;
+  const thisMon = monday(TODAY), end = lastPlanDate();
+  h += `<section class="list">`;
+  h += showPrevWeek ? weekBlock(addDays(thisMon,-7)) : `<button class="chip" data-act="prevweek" style="align-self:center;color:var(--lilac)">Letzte Woche anzeigen</button>`;
+  for (let mon = thisMon; mon <= end || mon === thisMon; mon = addDays(mon,7)) h += weekBlock(mon);
+  return h + `</section>` + navBar('woche');
+}
+
+/* ---------- Verschieben-Menü über mehrere Wochen ---------- */
+function moveSheet(id){
+  const ev = plan().find(e=>String(e.id)===String(id)); if(!ev) return;
+  let h = `<h2>Verschieben</h2><p class="small muted">${esc(ev.name)} · aktuell ${nice(ev.date)}</p>`;
+  const end = lastPlanDate();
+  for (let mon = monday(TODAY), n = 0; (mon <= end || n === 0) && n < 5; mon = addDays(mon,7), n++){
+    h += `<div class="mvweek"><p class="small" style="font-weight:700;color:var(--soft)">${n===0?'Diese Woche':n===1?'Nächste Woche':`${shortD(mon)} – ${shortD(addDays(mon,6))}`}</p><div class="mv">`;
+    for (let i=0;i<7;i++){
+      const d = addDays(mon,i);
+      if (d < TODAY){ h += `<button class="x" disabled aria-label="${WDL[wd(d)]} vorbei"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; continue; }
+      const c = d===ev.date ? {c:'g'} : conflict(ev,d);
+      h += `<button class="${c.c}${d===ev.date?' cur':''}" data-act="moveto" data-id="${ev.id}" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`;
+    }
+    h += `</div></div>`;
+  }
+  h += `<p class="hint" id="mvhint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`;
+  openSheet(h);
+}
+
+/* ---------- Drag & Drop: lange drücken, ziehen, loslassen ---------- */
+const DRAG = { timer:null, start:null, el:null, ghost:null, ev:null, over:null, active:false, justDragged:false, raf:null, y:0 };
+function dragCancelPending(){ clearTimeout(DRAG.timer); DRAG.timer = null; DRAG.start = null; }
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest('.ev[data-drag]'); if (!el) return;
+  DRAG.start = { x:e.clientX, y:e.clientY }; DRAG.el = el;
+  DRAG.timer = setTimeout(() => startDrag(e.clientX, e.clientY), 420);
+});
+function startDrag(x, y){
+  const el = DRAG.el; if (!el) return;
+  const ev = plan().find(v => String(v.id) === el.dataset.id); if (!ev) return;
+  DRAG.active = true; DRAG.ev = ev; DRAG.y = y;
+  try { navigator.vibrate && navigator.vibrate(25); } catch(_){}
+  const r = el.getBoundingClientRect();
+  const g = el.cloneNode(true); g.classList.add('drag-ghost'); g.style.width = r.width + 'px';
+  g.dataset.dx = x - r.left; g.dataset.dy = y - r.top;
+  document.body.appendChild(g); DRAG.ghost = g; el.classList.add('lifted');
+  moveGhost(x, y);
+  autoScroll();
+}
+function moveGhost(x, y){
+  const g = DRAG.ghost; if (!g) return;
+  g.style.transform = `translate(${x - g.dataset.dx}px, ${y - g.dataset.dy}px) scale(1.03)`;
+  DRAG.y = y;
+  g.style.display = 'none';
+  const under = document.elementFromPoint(x, y);
+  g.style.display = '';
+  const day = under && under.closest('.wday[data-day]');
+  if (DRAG.over && DRAG.over !== day) DRAG.over.classList.remove('drop-g','drop-y','drop-r');
+  DRAG.over = null;
+  if (day && day.dataset.day >= TODAY){
+    const d = day.dataset.day;
+    const c = d === DRAG.ev.date ? {c:'g'} : conflict(DRAG.ev, d);
+    day.classList.remove('drop-g','drop-y','drop-r'); day.classList.add('drop-' + c.c);
+    DRAG.over = day;
+  }
+}
+function autoScroll(){
+  if (!DRAG.active) return;
+  const edge = 90, H = window.innerHeight;
+  if (DRAG.y < edge) window.scrollBy(0, -Math.ceil((edge - DRAG.y) / 6));
+  else if (DRAG.y > H - edge - 70) window.scrollBy(0, Math.ceil((DRAG.y - (H - edge - 70)) / 6));
+  DRAG.raf = requestAnimationFrame(autoScroll);
+}
+document.addEventListener('pointermove', e => {
+  if (DRAG.active){ moveGhost(e.clientX, e.clientY); return; }
+  if (DRAG.start && Math.hypot(e.clientX - DRAG.start.x, e.clientY - DRAG.start.y) > 8) dragCancelPending();
+});
+// Während des Ziehens darf die Seite nicht von selbst scrollen
+document.addEventListener('touchmove', e => {
+  if (DRAG.active){ e.preventDefault(); const t = e.touches[0]; if (t) moveGhost(t.clientX, t.clientY); }
+  else if (DRAG.start && e.touches[0] && Math.hypot(e.touches[0].clientX - DRAG.start.x, e.touches[0].clientY - DRAG.start.y) > 8) dragCancelPending();
+}, { passive:false });
+document.addEventListener('touchend', () => { if (DRAG.active) endDrag(false); else dragCancelPending(); });
+function endDrag(cancel){
+  dragCancelPending();
+  if (!DRAG.active) return;
+  cancelAnimationFrame(DRAG.raf);
+  const ev = DRAG.ev, over = DRAG.over;
+  if (DRAG.ghost) DRAG.ghost.remove();
+  if (DRAG.el) DRAG.el.classList.remove('lifted');
+  if (over) over.classList.remove('drop-g','drop-y','drop-r');
+  DRAG.active = false; DRAG.ghost = null; DRAG.over = null; DRAG.justDragged = true;
+  setTimeout(() => DRAG.justDragged = false, 350);
+  if (cancel || !over) return;
+  const d = over.dataset.day;
+  if (d === ev.date) return;
+  const c = conflict(ev, d);
+  const apply = () => {
+    if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[ev.id]; else ST.moves[ev.id] = d;
+    save(); render(); toast(`Verschoben auf ${nice(d)}${c.c!=='g' ? ' · ' + c.why : ''}`);
+  };
+  if (c.c === 'r'){
+    openSheet(`<h2>Trotzdem verschieben?</h2><p style="line-height:1.5">${esc(c.why)}</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="dragyes" data-id="${ev.id}" data-d="${d}" style="background:#FF6B6B;color:var(--bg)">Verschieben</button></div>`);
+  } else apply();
+}
+document.addEventListener('pointerup', () => endDrag(false));
+document.addEventListener('pointercancel', () => { if (!DRAG.active) dragCancelPending(); }); // aktives Ziehen endet über touchend
+document.addEventListener('contextmenu', e => { if (e.target.closest('.ev[data-drag]')) e.preventDefault(); });
+// Klick nach dem Ziehen nicht als Tippen werten
+document.addEventListener('click', e => { if (DRAG.justDragged && e.target.closest('.ev')){ e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'prevweek'){ showPrevWeek = true; render(); }
+  if (b.dataset.act === 'dragno') closeSheet();
+  if (b.dataset.act === 'dragyes'){
+    const { id, d } = b.dataset; const ev = plan().find(v => String(v.id) === id);
+    if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id] = d;
+    save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+  }
+});

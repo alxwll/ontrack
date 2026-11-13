@@ -100,6 +100,14 @@ h1{font-size:28px;line-height:1.05} h2{font-size:16px;letter-spacing:1px}
 .seg button{height:44px;border-radius:10px;border:2px solid var(--line);background:transparent;color:var(--lilac);font-family:var(--display);font-weight:900;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
 .seg button.on{background:var(--lime);border-color:var(--lime);color:var(--bg)}
 .scrubtip{position:sticky;top:8px;z-index:5;gap:12px;flex-wrap:wrap;align-items:center;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.ev[data-id]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.drag-ghost{position:fixed;left:0;top:0;z-index:40;pointer-events:none;transform-origin:center;box-shadow:0 16px 40px rgba(0,0,0,.5);opacity:.95;border-radius:16px}
+.ev.lifted{opacity:.3}
+.wday.drop-g{outline:2px dashed #7CE38B;outline-offset:4px;border-radius:12px}
+.wday.drop-y{outline:2px dashed #FFC857;outline-offset:4px;border-radius:12px}
+.wday.drop-r{outline:2px dashed #FF6B6B;outline-offset:4px;border-radius:12px}
+.weeksep{position:sticky;top:0;z-index:4;background:var(--bg);padding:10px 0 8px;display:flex;flex-direction:column;gap:6px}
+.mvweek{display:flex;flex-direction:column;gap:6px}
 </style>
 </head>
 <body>
@@ -152,11 +160,27 @@ const ZONES = [
 const zoneOf = p => ZONES.find(z => p < z.max) || ZONES[4];
 
 /* ---------- Workout-Schritte ---------- */
+// Intervals kennt Pace als Bereich (%), Einzelwert (%) oder Zone. Alles auf einen Bereich in % umrechnen.
+function normStep(s){
+  const t = Object.assign({}, s);
+  const p = s.pace;
+  if (p){
+    if (p.units === 'pace_zone' && p.value != null){
+      const z = SNAP.settings.pace_zones || [80,90,96,102,999];
+      const v = Math.max(1, Math.min(z.length, Math.round(p.value)));
+      const lo = v === 1 ? 70 : z[v-2], hi = z[v-1] >= 200 ? lo + 8 : z[v-1];
+      t.pace = { start: lo, end: hi, units:'%pace' };
+    } else if (p.start == null && p.value != null){
+      t.pace = { start: p.value - 2, end: p.value + 2, units:'%pace' };
+    } else if (p.start == null) delete t.pace;
+  }
+  return t;
+}
 function flatten(steps, out=[]) {
   for (const s of steps||[]) {
     if (s.steps && s.reps) { for (let i=0;i<s.reps;i++) flatten(s.steps,out); }
     else if (s.steps) flatten(s.steps,out);
-    else out.push(Object.assign({}, s));
+    else out.push(normStep(s));
   }
   return out;
 }
@@ -325,7 +349,7 @@ function compensate(ev){
 
 /* ---------- Ansichten ---------- */
 function topBar(){
-  return `${LIVE?'':`<div class="preview">Vorschau mit deinen Intervals-Daten vom ${nice(TODAY)}. Änderungen bleiben nur auf diesem Gerät, nichts wird an Intervals gesendet.</div>`}
+  return `${LIVE?'':`<div class="preview">Vorschau mit deinen Intervals-Daten vom ${nice(TODAY)} Änderungen bleiben nur auf diesem Gerät, nichts wird an Intervals gesendet.</div>`}
   <header class="top"><div class="logo" role="img" aria-label="ON TRACK"><span>ON</span><span class="tog${dayStatus().on?'':' off'}"><i></i></span><span>TRACK</span></div><p class="small muted">${WDL[wd(TODAY)]}, ${parseD(TODAY).getUTCDate()}. ${MON[parseD(TODAY).getUTCMonth()]}</p></header>`;
 }
 function navBar(r){
@@ -392,38 +416,6 @@ function weekStrip(wi){
     h += `<div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="color:${d===TODAY?'var(--text)':'var(--lilac)'};font-weight:${d===TODAY?700:400}">${WD[wd(d)]}</span>${dot}</div>`;
   }
   return h + `</div></section>`;
-}
-
-let weekOffset = 0;
-function viewWeek(){
-  const mon = addDays(monday(TODAY), weekOffset*7);
-  const wi = weekInfo(mon);
-  const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
-  let h = topBar();
-  h += `<div class="weekhead"><button data-act="wk" data-d="-1" aria-label="Vorherige Woche">‹</button><h2>${weekOffset===0?'Diese Woche':weekOffset===1?'Nächste Woche':`${parseD(mon).getUTCDate()}.–${parseD(addDays(mon,6)).getUTCDate()}. ${MON[parseD(addDays(mon,6)).getUTCMonth()]}`}</h2><button data-act="wk" data-d="1" aria-label="Nächste Woche">›</button></div>`;
-  if (weekOffset===0) h += `<a href="#ziel" class="btn ghost" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Neuen Plan erstellen</a>`;
-  h += `<div class="row small muted"><span>Belastung geplant ${wi.planned}</span><span>erreicht ${wi.done}</span></div><div class="bar"><i style="width:${pct}%"></i></div>`;
-  h += `<section class="list">`;
-  for (const d of wi.days){
-    const evs = wi.evs.filter(e=>e.date===d);
-    h += `<div class="wday"><p class="lbl${d===TODAY?' today':''}">${nice(d)}${d===TODAY?' · heute':''}</p>`;
-    if (!evs.length) h += `<p class="empty">Ruhetag</p>`;
-    for (const ev of evs){
-      const st = statusOf(ev);
-      const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
-      const meta = st.s==='done' && st.act ? (isRun(st.act.type) ? `${(st.act.distance/1000).toFixed(1)} km · ${mins(st.act.moving_time)} min · ${paceStr(st.act.average_speed)} /km` : `${st.act.name} · ${nice(dateOf(st.act.start_date_local))} · ${mins(st.act.moving_time)} min`) : `${ev.cat.name}${ev.dur?` · ${mins(ev.dur)} min`:''}${ev.variant?` · ${VARIANTS[ev.variant]}`:''}${ev.extra?` · +${mins(ev.extra)} min Ausgleich`:''}${ST.moves[ev.id]?' · verschoben':''}`;
-      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"><span class="stripe" style="background:${ev.cat.col}"></span><span class="t"><span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
-    }
-    h += `</div>`;
-  }
-  // Aktivitäten ohne Plan (z. B. Rad)
-  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
-  if (extras.length){
-    h += `<div class="wday"><p class="lbl">Zusätzlich trainiert</p>`;
-    for (const a of extras) h += `<div class="ev done"><span class="stripe" style="background:var(--line)"></span><span class="t"><span class="n">${esc(a.name)}</span><span class="m">${nice(dateOf(a.start_date_local))} · ${esc(a.type)} · ${mins(a.moving_time)} min</span></span><span class="st muted">${a.icu_training_load??''}</span></div>`;
-    h += `</div>`;
-  }
-  return h + `</section>` + navBar('woche');
 }
 
 function viewDetail(id){
@@ -1150,6 +1142,159 @@ document.addEventListener('click', e => {
   }
 });
 
+
+/* ---------- Woche: durchgehende Ansicht über mehrere Wochen ---------- */
+let showPrevWeek = false;
+function lastPlanDate(){ return SNAP.events.map(e=>dateOf(e.start_date_local)).sort().pop() || TODAY; }
+function weekBlock(mon){
+  const wi = weekInfo(mon);
+  const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
+  const thisMon = monday(TODAY);
+  const title = mon === thisMon ? 'Diese Woche' : mon === addDays(thisMon,7) ? 'Nächste Woche' : mon === addDays(thisMon,-7) ? 'Letzte Woche' : `${shortD(mon)} – ${shortD(addDays(mon,6))}`;
+  let h = `<div class="weeksep"><div class="row"><h2>${title}</h2><span class="small muted">${mon<=TODAY?`Belastung ${wi.done} von ${wi.planned}`:`geplant ${wi.planned}`}</span></div>${mon<=TODAY?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}</div>`;
+  for (const d of wi.days){
+    const evs = wi.evs.filter(e=>e.date===d);
+    h += `<div class="wday" data-day="${d}"><p class="lbl${d===TODAY?' today':''}">${nice(d)}${d===TODAY?' · heute':''}</p>`;
+    if (!evs.length) h += `<p class="empty">Ruhetag</p>`;
+    for (const ev of evs){
+      const st = statusOf(ev);
+      const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
+      const meta = st.s==='done' && st.act ? (isRun(st.act.type) ? `${(st.act.distance/1000).toFixed(1)} km · ${mins(st.act.moving_time)} min · ${paceStr(st.act.average_speed)} /km` : `${st.act.name} · ${mins(st.act.moving_time)} min`) : `${ev.cat.name}${ev.dur?` · ${mins(ev.dur)} min`:''}${ev.variant?` · ${VARIANTS[ev.variant]}`:''}${ev.extra?` · +${mins(ev.extra)} min Ausgleich`:''}${ST.moves[ev.id]?' · verschoben':''}`;
+      const movable = st.s!=='done' && ev.date >= TODAY;
+      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"${movable?' data-drag="1"':''}><span class="stripe" style="background:${ev.cat.col}"></span><span class="t"><span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
+    }
+    h += `</div>`;
+  }
+  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
+  if (extras.length){
+    h += `<div class="wday"><p class="lbl">Zusätzlich trainiert</p>`;
+    for (const a of extras) h += `<div class="ev done"><span class="stripe" style="background:var(--line)"></span><span class="t"><span class="n">${esc(a.name)}</span><span class="m">${nice(dateOf(a.start_date_local))} · ${esc(a.type)} · ${mins(a.moving_time)} min</span></span><span class="st muted">${a.icu_training_load??''}</span></div>`;
+    h += `</div>`;
+  }
+  return h;
+}
+function viewWeek(){
+  let h = topBar();
+  h += `<a href="#ziel" class="btn ghost" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Neuen Plan erstellen</a>`;
+  h += `<p class="small muted" style="text-align:center">Kurz tippen für Details · lange drücken zum Verschieben</p>`;
+  const thisMon = monday(TODAY), end = lastPlanDate();
+  h += `<section class="list">`;
+  h += showPrevWeek ? weekBlock(addDays(thisMon,-7)) : `<button class="chip" data-act="prevweek" style="align-self:center;color:var(--lilac)">Letzte Woche anzeigen</button>`;
+  for (let mon = thisMon; mon <= end || mon === thisMon; mon = addDays(mon,7)) h += weekBlock(mon);
+  return h + `</section>` + navBar('woche');
+}
+
+/* ---------- Verschieben-Menü über mehrere Wochen ---------- */
+function moveSheet(id){
+  const ev = plan().find(e=>String(e.id)===String(id)); if(!ev) return;
+  let h = `<h2>Verschieben</h2><p class="small muted">${esc(ev.name)} · aktuell ${nice(ev.date)}</p>`;
+  const end = lastPlanDate();
+  for (let mon = monday(TODAY), n = 0; (mon <= end || n === 0) && n < 5; mon = addDays(mon,7), n++){
+    h += `<div class="mvweek"><p class="small" style="font-weight:700;color:var(--soft)">${n===0?'Diese Woche':n===1?'Nächste Woche':`${shortD(mon)} – ${shortD(addDays(mon,6))}`}</p><div class="mv">`;
+    for (let i=0;i<7;i++){
+      const d = addDays(mon,i);
+      if (d < TODAY){ h += `<button class="x" disabled aria-label="${WDL[wd(d)]} vorbei"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; continue; }
+      const c = d===ev.date ? {c:'g'} : conflict(ev,d);
+      h += `<button class="${c.c}${d===ev.date?' cur':''}" data-act="moveto" data-id="${ev.id}" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`;
+    }
+    h += `</div></div>`;
+  }
+  h += `<p class="hint" id="mvhint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`;
+  openSheet(h);
+}
+
+/* ---------- Drag & Drop: lange drücken, ziehen, loslassen ---------- */
+const DRAG = { timer:null, start:null, el:null, ghost:null, ev:null, over:null, active:false, justDragged:false, raf:null, y:0 };
+function dragCancelPending(){ clearTimeout(DRAG.timer); DRAG.timer = null; DRAG.start = null; }
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest('.ev[data-drag]'); if (!el) return;
+  DRAG.start = { x:e.clientX, y:e.clientY }; DRAG.el = el;
+  DRAG.timer = setTimeout(() => startDrag(e.clientX, e.clientY), 420);
+});
+function startDrag(x, y){
+  const el = DRAG.el; if (!el) return;
+  const ev = plan().find(v => String(v.id) === el.dataset.id); if (!ev) return;
+  DRAG.active = true; DRAG.ev = ev; DRAG.y = y;
+  try { navigator.vibrate && navigator.vibrate(25); } catch(_){}
+  const r = el.getBoundingClientRect();
+  const g = el.cloneNode(true); g.classList.add('drag-ghost'); g.style.width = r.width + 'px';
+  g.dataset.dx = x - r.left; g.dataset.dy = y - r.top;
+  document.body.appendChild(g); DRAG.ghost = g; el.classList.add('lifted');
+  moveGhost(x, y);
+  autoScroll();
+}
+function moveGhost(x, y){
+  const g = DRAG.ghost; if (!g) return;
+  g.style.transform = `translate(${x - g.dataset.dx}px, ${y - g.dataset.dy}px) scale(1.03)`;
+  DRAG.y = y;
+  g.style.display = 'none';
+  const under = document.elementFromPoint(x, y);
+  g.style.display = '';
+  const day = under && under.closest('.wday[data-day]');
+  if (DRAG.over && DRAG.over !== day) DRAG.over.classList.remove('drop-g','drop-y','drop-r');
+  DRAG.over = null;
+  if (day && day.dataset.day >= TODAY){
+    const d = day.dataset.day;
+    const c = d === DRAG.ev.date ? {c:'g'} : conflict(DRAG.ev, d);
+    day.classList.remove('drop-g','drop-y','drop-r'); day.classList.add('drop-' + c.c);
+    DRAG.over = day;
+  }
+}
+function autoScroll(){
+  if (!DRAG.active) return;
+  const edge = 90, H = window.innerHeight;
+  if (DRAG.y < edge) window.scrollBy(0, -Math.ceil((edge - DRAG.y) / 6));
+  else if (DRAG.y > H - edge - 70) window.scrollBy(0, Math.ceil((DRAG.y - (H - edge - 70)) / 6));
+  DRAG.raf = requestAnimationFrame(autoScroll);
+}
+document.addEventListener('pointermove', e => {
+  if (DRAG.active){ moveGhost(e.clientX, e.clientY); return; }
+  if (DRAG.start && Math.hypot(e.clientX - DRAG.start.x, e.clientY - DRAG.start.y) > 8) dragCancelPending();
+});
+// Während des Ziehens darf die Seite nicht von selbst scrollen
+document.addEventListener('touchmove', e => {
+  if (DRAG.active){ e.preventDefault(); const t = e.touches[0]; if (t) moveGhost(t.clientX, t.clientY); }
+  else if (DRAG.start && e.touches[0] && Math.hypot(e.touches[0].clientX - DRAG.start.x, e.touches[0].clientY - DRAG.start.y) > 8) dragCancelPending();
+}, { passive:false });
+document.addEventListener('touchend', () => { if (DRAG.active) endDrag(false); else dragCancelPending(); });
+function endDrag(cancel){
+  dragCancelPending();
+  if (!DRAG.active) return;
+  cancelAnimationFrame(DRAG.raf);
+  const ev = DRAG.ev, over = DRAG.over;
+  if (DRAG.ghost) DRAG.ghost.remove();
+  if (DRAG.el) DRAG.el.classList.remove('lifted');
+  if (over) over.classList.remove('drop-g','drop-y','drop-r');
+  DRAG.active = false; DRAG.ghost = null; DRAG.over = null; DRAG.justDragged = true;
+  setTimeout(() => DRAG.justDragged = false, 350);
+  if (cancel || !over) return;
+  const d = over.dataset.day;
+  if (d === ev.date) return;
+  const c = conflict(ev, d);
+  const apply = () => {
+    if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[ev.id]; else ST.moves[ev.id] = d;
+    save(); render(); toast(`Verschoben auf ${nice(d)}${c.c!=='g' ? ' · ' + c.why : ''}`);
+  };
+  if (c.c === 'r'){
+    openSheet(`<h2>Trotzdem verschieben?</h2><p style="line-height:1.5">${esc(c.why)}</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="dragyes" data-id="${ev.id}" data-d="${d}" style="background:#FF6B6B;color:var(--bg)">Verschieben</button></div>`);
+  } else apply();
+}
+document.addEventListener('pointerup', () => endDrag(false));
+document.addEventListener('pointercancel', () => { if (!DRAG.active) dragCancelPending(); }); // aktives Ziehen endet über touchend
+document.addEventListener('contextmenu', e => { if (e.target.closest('.ev[data-drag]')) e.preventDefault(); });
+// Klick nach dem Ziehen nicht als Tippen werten
+document.addEventListener('click', e => { if (DRAG.justDragged && e.target.closest('.ev')){ e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'prevweek'){ showPrevWeek = true; render(); }
+  if (b.dataset.act === 'dragno') closeSheet();
+  if (b.dataset.act === 'dragyes'){
+    const { id, d } = b.dataset; const ev = plan().find(v => String(v.id) === id);
+    if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id] = d;
+    save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+  }
+});
+
 /* ---------- Sheets ---------- */
 function openSheet(html){ closeSheet(); const d=document.createElement('div'); d.className='scrim'; d.id='scrim'; d.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><span class="grab"></span>${html}</div>`; d.addEventListener('click',e=>{ if(e.target===d) closeSheet(); }); document.body.appendChild(d); }
 function closeSheet(){ const s=$('#scrim'); if(s) s.remove(); }
@@ -1176,19 +1321,6 @@ function conflict(ev, day){
   if (ev.cat.hard && near.some(e=>e.cat.hard)) return { c:'y', why:`Direkt daneben liegt ${near.find(e=>e.cat.hard).name}. Zwei harte Tage hintereinander erhöhen das Verletzungsrisiko.` };
   if (on.length) return { c:'y', why:`An dem Tag steht schon ${on[0].name}. Doppeltag möglich, aber anstrengend.` };
   return { c:'g', why:'Passt gut.' };
-}
-function moveSheet(id){
-  const ev = plan().find(e=>String(e.id)===String(id)); if(!ev) return;
-  const mon = monday(ev.date);
-  let h = `<h2>Verschieben</h2><p class="small muted">${esc(ev.name)} · aktuell ${nice(ev.date)}</p><div class="mv">`;
-  for (let i=0;i<7;i++){
-    const d = addDays(mon,i);
-    if (d < TODAY){ h += `<button class="x" disabled aria-label="${WDL[wd(d)]} vorbei"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; continue; }
-    const c = d===ev.date ? {c:'g'} : conflict(ev,d);
-    h += `<button class="${c.c}${d===ev.date?' cur':''}" data-act="moveto" data-id="${ev.id}" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`;
-  }
-  h += `</div><p class="hint" id="mvhint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`;
-  openSheet(h);
 }
 function unfitSheet(id){
   openSheet(`<h2>Heute nicht fit</h2><p class="small muted">Was ist los? Der Plan passt sich an.</p>
@@ -1231,7 +1363,6 @@ document.addEventListener('click', e=>{
     if (v==='muede') setVariant(id,'leichter');
     if (v==='krank'){ ST.removed[id]=true; plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard).forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); }
   }
-  if (act==='wk'){ weekOffset = Math.max(-1, Math.min(3, weekOffset + Number(d))); render(); }
   if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
   if (act==='noop') toast('Liegt schon auf deiner Uhr.');
 });

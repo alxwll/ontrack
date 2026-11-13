@@ -100,6 +100,14 @@ h1{font-size:28px;line-height:1.05} h2{font-size:16px;letter-spacing:1px}
 .seg button{height:44px;border-radius:10px;border:2px solid var(--line);background:transparent;color:var(--lilac);font-family:var(--display);font-weight:900;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
 .seg button.on{background:var(--lime);border-color:var(--lime);color:var(--bg)}
 .scrubtip{position:sticky;top:8px;z-index:5;gap:12px;flex-wrap:wrap;align-items:center;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.ev[data-id]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.drag-ghost{position:fixed;left:0;top:0;z-index:40;pointer-events:none;transform-origin:center;box-shadow:0 16px 40px rgba(0,0,0,.5);opacity:.95;border-radius:16px}
+.ev.lifted{opacity:.3}
+.wday.drop-g{outline:2px dashed #7CE38B;outline-offset:4px;border-radius:12px}
+.wday.drop-y{outline:2px dashed #FFC857;outline-offset:4px;border-radius:12px}
+.wday.drop-r{outline:2px dashed #FF6B6B;outline-offset:4px;border-radius:12px}
+.weeksep{position:sticky;top:0;z-index:4;background:var(--bg);padding:10px 0 8px;display:flex;flex-direction:column;gap:6px}
+.mvweek{display:flex;flex-direction:column;gap:6px}
 </style>
 </head>
 <body>
@@ -152,11 +160,27 @@ const ZONES = [
 const zoneOf = p => ZONES.find(z => p < z.max) || ZONES[4];
 
 /* ---------- Workout-Schritte ---------- */
+// Intervals kennt Pace als Bereich (%), Einzelwert (%) oder Zone. Alles auf einen Bereich in % umrechnen.
+function normStep(s){
+  const t = Object.assign({}, s);
+  const p = s.pace;
+  if (p){
+    if (p.units === 'pace_zone' && p.value != null){
+      const z = SNAP.settings.pace_zones || [80,90,96,102,999];
+      const v = Math.max(1, Math.min(z.length, Math.round(p.value)));
+      const lo = v === 1 ? 70 : z[v-2], hi = z[v-1] >= 200 ? lo + 8 : z[v-1];
+      t.pace = { start: lo, end: hi, units:'%pace' };
+    } else if (p.start == null && p.value != null){
+      t.pace = { start: p.value - 2, end: p.value + 2, units:'%pace' };
+    } else if (p.start == null) delete t.pace;
+  }
+  return t;
+}
 function flatten(steps, out=[]) {
   for (const s of steps||[]) {
     if (s.steps && s.reps) { for (let i=0;i<s.reps;i++) flatten(s.steps,out); }
     else if (s.steps) flatten(s.steps,out);
-    else out.push(Object.assign({}, s));
+    else out.push(normStep(s));
   }
   return out;
 }
@@ -325,7 +349,7 @@ function compensate(ev){
 
 /* ---------- Ansichten ---------- */
 function topBar(){
-  return `${LIVE?'':`<div class="preview">Vorschau mit deinen Intervals-Daten vom ${nice(TODAY)}. Änderungen bleiben nur auf diesem Gerät, nichts wird an Intervals gesendet.</div>`}
+  return `${LIVE?'':`<div class="preview">Vorschau mit deinen Intervals-Daten vom ${nice(TODAY)} Änderungen bleiben nur auf diesem Gerät, nichts wird an Intervals gesendet.</div>`}
   <header class="top"><div class="logo" role="img" aria-label="ON TRACK"><span>ON</span><span class="tog${dayStatus().on?'':' off'}"><i></i></span><span>TRACK</span></div><p class="small muted">${WDL[wd(TODAY)]}, ${parseD(TODAY).getUTCDate()}. ${MON[parseD(TODAY).getUTCMonth()]}</p></header>`;
 }
 function navBar(r){
@@ -392,38 +416,6 @@ function weekStrip(wi){
     h += `<div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="color:${d===TODAY?'var(--text)':'var(--lilac)'};font-weight:${d===TODAY?700:400}">${WD[wd(d)]}</span>${dot}</div>`;
   }
   return h + `</div></section>`;
-}
-
-let weekOffset = 0;
-function viewWeek(){
-  const mon = addDays(monday(TODAY), weekOffset*7);
-  const wi = weekInfo(mon);
-  const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
-  let h = topBar();
-  h += `<div class="weekhead"><button data-act="wk" data-d="-1" aria-label="Vorherige Woche">‹</button><h2>${weekOffset===0?'Diese Woche':weekOffset===1?'Nächste Woche':`${parseD(mon).getUTCDate()}.–${parseD(addDays(mon,6)).getUTCDate()}. ${MON[parseD(addDays(mon,6)).getUTCMonth()]}`}</h2><button data-act="wk" data-d="1" aria-label="Nächste Woche">›</button></div>`;
-  if (weekOffset===0) h += `<a href="#ziel" class="btn ghost" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Neuen Plan erstellen</a>`;
-  h += `<div class="row small muted"><span>Belastung geplant ${wi.planned}</span><span>erreicht ${wi.done}</span></div><div class="bar"><i style="width:${pct}%"></i></div>`;
-  h += `<section class="list">`;
-  for (const d of wi.days){
-    const evs = wi.evs.filter(e=>e.date===d);
-    h += `<div class="wday"><p class="lbl${d===TODAY?' today':''}">${nice(d)}${d===TODAY?' · heute':''}</p>`;
-    if (!evs.length) h += `<p class="empty">Ruhetag</p>`;
-    for (const ev of evs){
-      const st = statusOf(ev);
-      const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
-      const meta = st.s==='done' && st.act ? (isRun(st.act.type) ? `${(st.act.distance/1000).toFixed(1)} km · ${mins(st.act.moving_time)} min · ${paceStr(st.act.average_speed)} /km` : `${st.act.name} · ${nice(dateOf(st.act.start_date_local))} · ${mins(st.act.moving_time)} min`) : `${ev.cat.name}${ev.dur?` · ${mins(ev.dur)} min`:''}${ev.variant?` · ${VARIANTS[ev.variant]}`:''}${ev.extra?` · +${mins(ev.extra)} min Ausgleich`:''}${ST.moves[ev.id]?' · verschoben':''}`;
-      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"><span class="stripe" style="background:${ev.cat.col}"></span><span class="t"><span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
-    }
-    h += `</div>`;
-  }
-  // Aktivitäten ohne Plan (z. B. Rad)
-  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
-  if (extras.length){
-    h += `<div class="wday"><p class="lbl">Zusätzlich trainiert</p>`;
-    for (const a of extras) h += `<div class="ev done"><span class="stripe" style="background:var(--line)"></span><span class="t"><span class="n">${esc(a.name)}</span><span class="m">${nice(dateOf(a.start_date_local))} · ${esc(a.type)} · ${mins(a.moving_time)} min</span></span><span class="st muted">${a.icu_training_load??''}</span></div>`;
-    h += `</div>`;
-  }
-  return h + `</section>` + navBar('woche');
 }
 
 function viewDetail(id){
@@ -504,19 +496,6 @@ function conflict(ev, day){
   if (on.length) return { c:'y', why:`An dem Tag steht schon ${on[0].name}. Doppeltag möglich, aber anstrengend.` };
   return { c:'g', why:'Passt gut.' };
 }
-function moveSheet(id){
-  const ev = plan().find(e=>String(e.id)===String(id)); if(!ev) return;
-  const mon = monday(ev.date);
-  let h = `<h2>Verschieben</h2><p class="small muted">${esc(ev.name)} · aktuell ${nice(ev.date)}</p><div class="mv">`;
-  for (let i=0;i<7;i++){
-    const d = addDays(mon,i);
-    if (d < TODAY){ h += `<button class="x" disabled aria-label="${WDL[wd(d)]} vorbei"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; continue; }
-    const c = d===ev.date ? {c:'g'} : conflict(ev,d);
-    h += `<button class="${c.c}${d===ev.date?' cur':''}" data-act="moveto" data-id="${ev.id}" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`;
-  }
-  h += `</div><p class="hint" id="mvhint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`;
-  openSheet(h);
-}
 function unfitSheet(id){
   openSheet(`<h2>Heute nicht fit</h2><p class="small muted">Was ist los? Der Plan passt sich an.</p>
   <button class="btn" data-act="unfit-go" data-v="zeit" data-id="${id}">Wenig Zeit</button>
@@ -558,7 +537,6 @@ document.addEventListener('click', e=>{
     if (v==='muede') setVariant(id,'leichter');
     if (v==='krank'){ ST.removed[id]=true; plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard).forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); }
   }
-  if (act==='wk'){ weekOffset = Math.max(-1, Math.min(3, weekOffset + Number(d))); render(); }
   if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
   if (act==='noop') toast('Liegt schon auf deiner Uhr.');
 });
