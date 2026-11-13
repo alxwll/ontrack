@@ -37,7 +37,7 @@ export default {
         const [sport, events, acts, well] = await Promise.all([
           iv(`/athlete/${A}/sport-settings`).then(r => r.json()),
           iv(`/athlete/${A}/events?oldest=${addDays(today, -14)}&newest=${addDays(today, 28)}`).then(r => r.json()),
-          iv(`/athlete/${A}/activities?oldest=${addDays(today, -28)}&newest=${today}`).then(r => r.json()),
+          iv(`/athlete/${A}/activities?oldest=${addDays(today, -395)}&newest=${today}`).then(r => r.json()),
           iv(`/athlete/${A}/wellness?oldest=${addDays(today, -365)}&newest=${today}`).then(r => r.json()),
         ]);
         const run = sport.find(s => (s.types || []).includes('Run')) || {};

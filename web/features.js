@@ -127,6 +127,7 @@ function viewForm(){
     <p style="line-height:1.5;color:var(--soft)">${esc(todaySentence(f, plan().filter(e=>e.date===TODAY)))}</p></section>`;
   h += `<div class="seg" role="group" aria-label="Zeitraum">${RANGES.map(([k,l])=>`<button data-act="frange" data-v="${k}" aria-pressed="${FR.key===k}" class="${FR.key===k?'on':''}">${l}</button>`).join('')}</div>`;
   h += `<div class="scrubtip" id="scrubtip" aria-live="polite" style="display:none"></div>`;
+  h += runBuildSection();
   h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px">
     <h2>Form</h2>
     ${chartWrap(`<svg width="100%" height="140" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Verlauf der Form mit Bereichen" style="display:block">${bands}<polyline fill="none" stroke="#F1EAFF" stroke-width="2.5" vector-effect="non-scaling-stroke" points="${pctPts}"></polyline></svg>`, 'form')}
@@ -884,4 +885,81 @@ function pushCreate(gen, day){
   const steps = flatSteps(gen.steps);
   sync('Das Workout', () => api('POST', '/api/events', { type:'Run', start_date_local:`${day}T00:00:00`, name:`On.Track · ${gen.t.name}`, description: stepsToText(steps) }));
   toast(day === TODAY ? 'Wird an deine Uhr gesendet …' : `Wird für ${nice(day)} eingeplant …`);
+}
+
+
+/* ---------- Laufaufbau: Laufbelastung der letzten 7 Tage mit Soll-Zone ---------- */
+// Nur Läufe. Soll-Zone aus deinem Laufniveau der letzten 4 Wochen (0,8- bis 1,3-fach),
+// nach vorn aus den geplanten Läufen (±15 %). Gestrichelt rot: Sicherheitsgrenze.
+function runLoadOn(day){ return SNAP.activities.filter(a => isRun(a.type) && dateOf(a.start_date_local) === day).reduce((x,a)=>x+(a.icu_training_load||0),0); }
+function plannedRunOn(day){ return plan().filter(e => e.date === day && isRun(e.type) && statusOf(e).s !== 'done').reduce((x,e)=>x+e.load,0); }
+function runSeries(){
+  const days = RANGES.find(r => r[0] === FR.key)[2];
+  const ahead = 14;
+  const from = addDays(TODAY, -days + 1), to = addDays(TODAY, ahead);
+  const daily = {};
+  for (let d = addDays(from, -28); d <= to; d = addDays(d, 1)) daily[d] = d <= TODAY ? runLoadOn(d) + (d === TODAY ? plannedRunOn(d) : 0) : plannedRunOn(d);
+  const sum = (d, n) => { let x = 0; for (let i = 0; i < n; i++) x += daily[addDays(d, -i)] || 0; return x; };
+  const out = [];
+  for (let d = from; d <= to; d = addDays(d, 1)){
+    const acute = sum(d, 7), chronic = sum(d, 28) / 4;
+    const future = d > TODAY;
+    const lo = future ? acute * 0.85 : chronic * 0.8;
+    const hi = future ? acute * 1.15 : chronic * 1.3;
+    out.push({ d, acute, chronic, lo, hi, safe: chronic * 1.3, future });
+  }
+  // Bei längeren Zeiträumen ausdünnen, damit die Linie ruhig bleibt (heute bleibt immer drin)
+  const step = FR.key === '1y' ? 7 : FR.key === '3m' ? 3 : 1;
+  if (step === 1) return out;
+  const iT = out.findIndex(p => p.d === TODAY);
+  return out.filter((p, i) => i === iT || i === out.length - 1 || ((iT - i) % step === 0 && i < iT) || (i > iT && (i - iT) % step === 0));
+}
+function runBuildSection(){
+  const S = runSeries(); if (!S.length) return '';
+  const W = 350, H = 140;
+  const max = Math.max(10, ...S.map(p => Math.max(p.acute, p.hi, p.future ? p.safe : 0))) * 1.1;
+  const X = i => i / (S.length - 1) * W, Y = v => H - v / max * H;
+  const iT = S.findIndex(p => p.d === TODAY);
+  const past = S.slice(0, iT + 1), fut = S.slice(iT);
+  const zone = `<polygon points="${S.map((p,i)=>`${X(i).toFixed(1)},${Y(p.hi).toFixed(1)}`).join(' ')} ${S.map((p,i)=>`${X(i).toFixed(1)},${Y(p.lo).toFixed(1)}`).reverse().join(' ')}" fill="#5FD17A" fill-opacity="0.55"></polygon>`;
+  const pl = (arr, off, extra) => `<polyline fill="none" stroke="#F1EAFF" stroke-width="2.5" vector-effect="non-scaling-stroke" ${extra||''} points="${arr.map((p,i)=>`${X(i+off).toFixed(1)},${Y(p.acute).toFixed(1)}`).join(' ')}"></polyline>`;
+  const safe = `<polyline fill="none" stroke="#FF6B6B" stroke-width="1.5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke" points="${fut.map((p,i)=>`${X(i+iT).toFixed(1)},${Y(p.safe).toFixed(1)}`).join(' ')}"></polyline>`;
+  const today = `<line x1="${X(iT)}" x2="${X(iT)}" y1="0" y2="${H}" stroke="#C9B6FF" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"></line>`;
+  const t = S[iT];
+  let msg;
+  if (t.acute < t.lo) msg = 'Gerade unter deinem gewohnten Laufniveau. Ein lockerer Lauf mehr diese Woche bringt dich zurück in den grünen Bereich.';
+  else if (t.acute > t.hi) msg = 'Mehr Laufen, als dein Körper gerade gewohnt ist. Die nächsten Tage lieber ruhig angehen.';
+  else msg = 'Du liegst im grünen Bereich: Dein Laufen wächst gesund.';
+  const over = fut.find(p => p.acute > p.safe * 1.05 && p.d > TODAY);
+  if (over) msg += ` Achtung: Um den ${shortD(over.d)} zieht der Plan schneller an, als dein Laufen mitwächst.`;
+  // Achsenbeschriftung: Start, Heute, Ende
+  const lab = `<div style="position:relative;height:16px;font-size:12px;color:var(--lilac);margin-top:4px">
+    <span style="position:absolute;left:0">${FR.key==='1y'?MON[parseD(S[0].d).getUTCMonth()]:shortD(S[0].d)}</span>
+    <span style="position:absolute;left:${(iT/(S.length-1)*100).toFixed(1)}%;transform:translateX(-50%)">Heute</span>
+    ${iT/(S.length-1) < 0.85 ? `<span style="position:absolute;right:0">${shortD(S[S.length-1].d)}</span>` : ''}</div>`;
+  return `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px">
+    <h2>Laufaufbau</h2>
+    <p style="line-height:1.5;color:var(--text)">${esc(msg)}</p>
+    <div class="scrub" data-scrub="run" style="position:relative;touch-action:pan-y;cursor:crosshair"><svg width="100%" height="140" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Laufbelastung der letzten sieben Tage mit Soll-Zone" style="display:block">${zone}${today}${safe}${pl(past,0)}${pl(fut,iT,'stroke-dasharray="2 5" stroke-linecap="round"')}</svg>
+    <div class="scrubline" style="display:none;position:absolute;top:0;bottom:0;width:2px;background:var(--text);opacity:.7;pointer-events:none"></div></div>
+    ${lab}
+    <div class="legend"><span><i style="background:#F1EAFF"></i>Laufbelastung 7 Tage</span><span><i style="background:#7CE38B"></i>Soll-Zone</span><span><i style="background:#FF6B6B;height:2px"></i>Sicherheitsgrenze</span></div>
+    <p class="small" style="color:var(--soft);line-height:1.5">Nur Läufe zählen. Die <b style="color:var(--text)">Soll-Zone</b> wächst mit dir: Sie richtet sich nach deinem Laufen der letzten vier Wochen. Rechts von „Heute“ zeigt sie, was dein Plan vorsieht. Liegt die Linie in der Zone, wird dein Laufen gesund mehr.</p></section>`;
+}
+// Antippen im Laufaufbau-Diagramm
+document.addEventListener('pointerdown', e => {
+  const s = e.target.closest('.scrub[data-scrub="run"]'); if (!s) return;
+  e.stopImmediatePropagation();
+  runScrub(s, e.clientX);
+  const mv = ev => runScrub(s, ev.clientX);
+  const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); setTimeout(scrubEnd, 1500); };
+  document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+}, true);
+function runScrub(el, clientX){
+  const S = runSeries(); const r = el.getBoundingClientRect();
+  const i = Math.round(Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (S.length - 1)), p = S[i];
+  const l = el.querySelector('.scrubline'); l.style.display = 'block'; l.style.left = `calc(${(i/(S.length-1)*100).toFixed(2)}% - 1px)`;
+  const tip = document.getElementById('scrubtip'); tip.style.display = 'flex';
+  const inZone = p.acute >= p.lo && p.acute <= p.hi;
+  tip.innerHTML = `<b>${p.d===TODAY?'Heute':`${WD[wd(p.d)]}, ${shortD(p.d)}`}${p.future?' (Plan)':''}</b><span>Laufbelastung <b>${Math.round(p.acute)}</b></span><span>Soll <b>${Math.round(p.lo)}–${Math.round(p.hi)}</b></span><span style="color:${inZone?'#2E8B3E':'#C0392B'};font-weight:700">${inZone?'im Soll':p.acute<p.lo?'darunter':'darüber'}</span>`;
 }
