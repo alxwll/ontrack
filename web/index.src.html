@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2A0F5C">
+<title>On. Track</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Space+Grotesk:wght@400;500;700&display=swap">
+<style>
+:root{
+  --bg:#2A0F5C; --bg2:#3A1A78; --card:#6D28FF; --line:#4B2A8A;
+  --lilac:#C9B6FF; --soft:#E4D9FF; --text:#F1EAFF; --lime:#D7FF3D;
+  --z1:#C9B6FF; --z2:#FFD84D; --z3:#FF8A1F; --z4:#FF3B3B; --z5:#E838A8; --str:#9B8AD9;
+  --display:'Archivo',system-ui,sans-serif; --sans:'Space Grotesk',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{color:var(--lime)}
+.app{max-width:480px;margin:0 auto;min-height:100vh;padding:20px 20px 96px;display:flex;flex-direction:column;gap:18px}
+.preview{font-size:12px;color:var(--lilac);border:1px dashed var(--line);border-radius:12px;padding:8px 12px;line-height:1.4}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.logo{display:flex;align-items:center;gap:6px;font-family:var(--display);font-weight:900;font-size:20px;letter-spacing:.5px}
+.tog{width:28px;height:16px;border-radius:99px;background:var(--lime);display:flex;justify-content:flex-end;padding:2px}
+.tog i{width:12px;height:12px;border-radius:99px;background:var(--bg);display:block}
+.tog.off{background:var(--line);justify-content:flex-start}.tog.off i{background:var(--lilac)}
+.muted{color:var(--lilac)} .small{font-size:13px} p{margin:0}
+h1,h2{margin:0;font-family:var(--display);font-weight:900;text-transform:uppercase}
+h1{font-size:28px;line-height:1.05} h2{font-size:16px;letter-spacing:1px}
+.status{display:flex;flex-direction:column;gap:8px}
+.pill{align-self:flex-start;display:inline-flex;align-items:center;gap:10px;padding:8px 18px;border-radius:99px;font-family:var(--display);font-weight:900;font-size:28px;line-height:1.1}
+.pill.on{background:var(--lime);color:var(--bg)} .pill.off{background:var(--line);color:var(--text);font-size:20px;padding:10px 16px}
+.card{background:var(--card);border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.tag{align-self:flex-start;padding:6px 12px;border-radius:99px;background:var(--bg);font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.stats{display:flex;gap:24px}.stats .k{font-size:13px;color:var(--soft)}.stats .v{font-size:22px;font-weight:700}
+.prof{display:block;background:var(--bg);border-radius:16px;padding:12px 12px 8px;color:var(--lilac);text-decoration:none;border:none;width:100%;text-align:left}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.btn{height:48px;border-radius:14px;border:none;background:var(--bg);color:var(--text);font-size:15px;font-weight:700}
+.btn.ghost{background:transparent;border:2px solid var(--lilac);color:var(--lilac)}
+.btn.lime{background:var(--lime);color:var(--bg)}
+.btn.sel{outline:2px solid var(--lime);color:var(--lime)}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:99px;background:var(--bg);font-size:13px;font-weight:700;color:var(--lime);border:none}
+.note{background:var(--bg2);border-radius:16px;padding:14px 16px;font-size:14px;line-height:1.5;color:var(--soft)}
+.note b{color:var(--text)}
+.bar{height:10px;border-radius:99px;background:var(--line);overflow:hidden;position:relative}
+.bar i{display:block;height:100%;background:var(--lime)}
+.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;text-align:center;font-size:13px}
+.days span.d{width:14px;height:14px;border-radius:99px;display:inline-block}
+.list{display:flex;flex-direction:column;gap:10px}
+.wday{display:flex;flex-direction:column;gap:6px}
+.wday .lbl{font-size:13px;color:var(--lilac);font-weight:700}
+.wday .lbl.today{color:var(--lime)}
+.ev{display:flex;align-items:center;gap:12px;background:var(--bg2);border-radius:16px;padding:12px 14px;border:none;color:var(--text);text-align:left;width:100%}
+.ev .stripe{width:6px;align-self:stretch;border-radius:3px;flex:none}
+.ev .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.ev .n{display:block;font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .m{font-size:13px;color:var(--lilac)}
+.ev.done{opacity:.75}.ev.missed .n{text-decoration:line-through;color:var(--lilac)}
+.ev .st{font-size:12px;font-weight:700;flex:none}
+.empty{font-size:13px;color:var(--line);padding:4px 2px}
+.nav{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 20px calc(10px + env(safe-area-inset-bottom))}
+.nav div{max-width:480px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.nav a{height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px;color:var(--lilac);text-decoration:none;font-weight:700}
+.nav a.act{background:var(--line);color:var(--text)}
+.back{display:flex;align-items:center;gap:6px;color:var(--lilac);text-decoration:none;font-weight:700;height:44px}
+.steps .s{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.steps .s:last-child{border-bottom:none}
+.steps .s .c{width:6px;height:36px;border-radius:3px;flex:none}
+.steps .s .x{flex:1}.steps .s .x b{display:block;font-size:15px}.steps .s .x span{font-size:13px;color:var(--lilac)}
+.steps .s .dur{font-weight:700}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--soft)}
+.legend span{display:flex;align-items:center;gap:6px}.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.scrim{position:fixed;inset:0;background:rgba(10,0,30,.6);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet{width:100%;max-width:480px;background:var(--bg2);border-radius:24px 24px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:14px;max-height:85vh;overflow:auto}
+.sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);align-self:center}
+.mv{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.mv button{height:64px;border-radius:12px;border:none;font-weight:700;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--bg)}
+.mv .g{background:#7CE38B}.mv .y{background:#FFC857}.mv .r{background:#FF6B6B}.mv .x{background:var(--line);color:var(--lilac)}
+.mv .cur{outline:3px solid var(--text)}
+.hint{font-size:13px;color:var(--soft);min-height:20px;line-height:1.4}
+.toast{position:fixed;left:50%;transform:translateX(-50%);top:16px;background:var(--lime);color:var(--bg);font-weight:700;padding:12px 18px;border-radius:14px;z-index:30;max-width:90vw;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.weekhead{display:flex;align-items:center;justify-content:space-between}
+.weekhead button{height:44px;min-width:44px;border-radius:12px;border:none;background:var(--bg2);color:var(--text);font-weight:700;padding:0 12px}
+.form{display:flex;gap:10px}
+.form > div{flex:1;background:var(--bg2);border-radius:16px;padding:12px 14px}
+.form .k{font-size:12px;color:var(--lilac)}.form .v{font-size:20px;font-weight:700}
+.fb{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.fb button{height:44px;border-radius:12px;border:2px solid var(--line);background:transparent;color:var(--lilac);font-weight:700}
+.fb button.sel{border-color:var(--lime);color:var(--lime)}
+.seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.seg button{height:44px;border-radius:10px;border:2px solid var(--line);background:transparent;color:var(--lilac);font-family:var(--display);font-weight:900;font-size:13px;letter-spacing:.5px;text-transform:uppercase}
+.seg button.on{background:var(--lime);border-color:var(--lime);color:var(--bg)}
+.scrubtip{position:sticky;top:8px;z-index:5;gap:12px;flex-wrap:wrap;align-items:center;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script id="snapshot" type="application/json">__SNAPSHOT__</script>
+<script>
+"use strict";
+/* ---------- Konfiguration ---------- */
+const CONFIG = { apiBase: null /*__API__*/ }; // später: URL des Cloudflare Workers, z. B. "https://ontrack.<name>.workers.dev"
+
+/* ---------- Daten ---------- */
+let SNAP = JSON.parse(document.getElementById('snapshot').textContent);
+const store = (() => { try { const k='ontrack.v1'; return { get:()=>JSON.parse(localStorage.getItem(k)||'{}'), set:v=>localStorage.setItem(k,JSON.stringify(v)) }; } catch(e){ return { get:()=>({}), set:()=>{} }; } })();
+const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{} }, store.get());
+const save = () => { try { store.set(ST); } catch(e){} };
+
+let TODAY = SNAP.today;
+let THR = SNAP.settings.threshold_pace_ms; // m/s an der Schwelle
+const LIVE = !!CONFIG.apiBase;
+
+/* ---------- Helfer ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const d2 = n => String(n).padStart(2,'0');
+const dateOf = s => s.slice(0,10);
+const parseD = s => { const [y,m,d]=s.split('-').map(Number); return new Date(Date.UTC(y,m-1,d)); };
+const fmtD = dt => `${dt.getUTCFullYear()}-${d2(dt.getUTCMonth()+1)}-${d2(dt.getUTCDate())}`;
+const addDays = (s,n) => { const dt=parseD(s); dt.setUTCDate(dt.getUTCDate()+n); return fmtD(dt); };
+const WD = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+const WDL = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const MON = ['Jan.','Feb.','März','Apr.','Mai','Juni','Juli','Aug.','Sep.','Okt.','Nov.','Dez.'];
+const wd = s => parseD(s).getUTCDay();
+const monday = s => addDays(s, -((wd(s)+6)%7));
+const nice = s => `${WD[wd(s)]}, ${parseD(s).getUTCDate()}. ${MON[parseD(s).getUTCMonth()]}`;
+const mins = sec => Math.round(sec/60);
+const paceStr = ms => { if(!ms) return '–'; const s=Math.round(1000/ms); return `${Math.floor(s/60)}:${d2(s%60)}`; };
+const pctToPace = p => paceStr(THR*p/100);
+const cleanName = n => (n||'').replace(/^IntervalCoach\s*-\s*/,'');
+const isRun = t => /Run/.test(t||'');
+const isStrength = t => /Weight|Strength/.test(t||'');
+
+/* Zonen über % der Schwellenpace */
+const ZONES = [
+  { max:80,  name:'Erholung', col:'var(--z1)', hex:'#C9B6FF' },
+  { max:90,  name:'Locker',   col:'var(--z2)', hex:'#FFD84D' },
+  { max:96,  name:'Tempo',    col:'var(--z3)', hex:'#FF8A1F' },
+  { max:102, name:'Schwelle', col:'var(--z4)', hex:'#FF3B3B' },
+  { max:999, name:'VO2max',   col:'var(--z5)', hex:'#E838A8' },
+];
+const zoneOf = p => ZONES.find(z => p < z.max) || ZONES[4];
+
+/* ---------- Workout-Schritte ---------- */
+function flatten(steps, out=[]) {
+  for (const s of steps||[]) {
+    if (s.steps && s.reps) { for (let i=0;i<s.reps;i++) flatten(s.steps,out); }
+    else if (s.steps) flatten(s.steps,out);
+    else out.push(Object.assign({}, s));
+  }
+  return out;
+}
+const stepPct = s => s.pace ? (s.pace.start + s.pace.end)/2 : 70;
+const estLoad = steps => steps.reduce((a,s)=>a + (s.duration||0)/3600 * Math.pow(stepPct(s)/100,2)*100, 0);
+
+function stepLabel(s){
+  if (s.warmup) return 'Einlaufen';
+  if (s.cooldown) return 'Auslaufen';
+  return s.text || zoneOf(stepPct(s)).name;
+}
+
+/* Variante anwenden: leichter / schwerer / kürzer / länger */
+const VARIANTS = { leichter:'Leichter', schwerer:'Schwerer', kuerzer:'Kürzer', laenger:'Länger' };
+function applyVariant(steps, v){
+  const r30 = x => Math.max(60, Math.round(x/30)*30);
+  return steps.map(s => {
+    const t = Object.assign({}, s, s.pace ? { pace:Object.assign({},s.pace) } : {});
+    const p = stepPct(s), hard = p >= 90;
+    if (v==='kuerzer') t.duration = r30(s.duration * (hard ? 0.8 : 0.75));
+    if (v==='laenger') t.duration = hard ? s.duration : r30(s.duration * 1.25);
+    if (v==='leichter' && hard && t.pace){ t.pace.start-=4; t.pace.end-=4; }
+    if (v==='schwerer' && hard && t.pace){ t.pace.start+=2; t.pace.end+=2; }
+    return t;
+  });
+}
+
+/* ---------- Plan zusammensetzen ---------- */
+function eventDate(e){ return ST.moves[e.id] || dateOf(e.start_date_local); }
+function category(e, steps){
+  if (isStrength(e.type)) return { name:'Kraft', col:'var(--str)', hard:false, key:false };
+  // Hart ist eine Einheit erst ab 8 min über 90 % der Schwellenpace; kurze Steigerungen zählen nicht
+  const hardSteps = steps.filter(s => stepPct(s) >= 90);
+  const hardSec = hardSteps.reduce((a,s)=>a+(s.duration||0),0);
+  let z;
+  if (hardSec >= 480){
+    const w = hardSteps.reduce((a,s)=>a+stepPct(s)*s.duration,0)/hardSec;
+    z = zoneOf(w);
+  } else z = /Erholung|Shakeout/i.test(e.name) ? ZONES[0] : ZONES[1];
+  return { name:z.name, col:z.col, hard: hardSec >= 480, key: hardSec >= 480 || (e.moving_time||0) >= 4800 };
+}
+function buildEvent(e){
+  const base = flatten(e.workout_doc && e.workout_doc.steps);
+  let steps = base;
+  const v = ST.variants[e.id];
+  if (v) steps = applyVariant(base, v);
+  const extra = ST.comp[e.id] || 0; // Ausgleich in Sekunden, wird auf den längsten lockeren Abschnitt gelegt
+  if (extra && steps.length){
+    steps = steps.map(s=>Object.assign({},s));
+    let idx = -1, best = 0;
+    steps.forEach((s,i)=>{ if (stepPct(s) < 90 && s.duration > best){ best=s.duration; idx=i; } });
+    if (idx>=0) steps[idx].duration += extra;
+  }
+  const baseDur = base.reduce((a,s)=>a+(s.duration||0),0) || e.moving_time || 0;
+  const dur = steps.length ? steps.reduce((a,s)=>a+(s.duration||0),0) : (e.moving_time||0);
+  const ratio = base.length ? estLoad(steps)/Math.max(estLoad(base),0.1) : 1;
+  const load = Math.round((e.icu_training_load||0) * ratio);
+  const cat = category(e, base);
+  return { raw:e, id:e.id, date:eventDate(e), name:cleanName(e.name), type:e.type, steps, base, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra };
+}
+function plan(){
+  return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
+}
+function activitiesOn(day){ return SNAP.activities.filter(a => dateOf(a.start_date_local)===day); }
+function matchAct(ev){
+  const paired = ev.raw.paired_activity_id && SNAP.activities.find(a=>a.id===ev.raw.paired_activity_id);
+  if (paired) return paired;
+  const same = a => isRun(ev.type) ? isRun(a.type) : isStrength(ev.type) ? isStrength(a.type) : !isRun(a.type);
+  const taken = new Set(SNAP.events.map(x=>x.paired_activity_id).filter(Boolean));
+  const free = a => same(a) && !taken.has(a.id);
+  const sameDay = activitiesOn(ev.date).find(free);
+  if (sameDay) return sameDay;
+  if (isStrength(ev.type)) { // Kraft ist flexibel: einen Tag davor oder danach zählt auch
+    for (const d of [addDays(ev.date,-1), addDays(ev.date,1)]) { const a = activitiesOn(d).find(free); if (a && d<=TODAY) return a; }
+  }
+  return null;
+}
+function statusOf(ev){
+  const act = matchAct(ev);
+  if (act) return { s:'done', act };
+  if (ev.date < TODAY) return { s:'missed' };
+  if (ev.date === TODAY) return { s:'today' };
+  return { s:'planned' };
+}
+/* Wochenbilanz und Status "Läuft." */
+function weekInfo(mon){
+  const days = [...Array(7)].map((_,i)=>addDays(mon,i));
+  const evs = plan().filter(e => e.date>=mon && e.date<=days[6]);
+  const planned = evs.reduce((a,e)=>a+e.load,0);
+  const done = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=days[6];}).reduce((a,x)=>a+(x.icu_training_load||0),0);
+  const dueEvs = evs.filter(e=>e.date<TODAY);
+  const missedKey = dueEvs.filter(e=>statusOf(e).s==='missed' && e.cat.key);
+  const dueLoad = dueEvs.reduce((a,e)=>a+e.load,0);
+  const doneDue = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<TODAY;}).reduce((a,x)=>a+(x.icu_training_load||0),0);
+  const onTrack = missedKey.length===0 && (dueLoad===0 || doneDue >= dueLoad*0.8);
+  return { days, evs, planned, done, onTrack, missedKey };
+}
+
+/* ---------- Grafiken ---------- */
+function profileSVG(steps, h, opts={}){
+  const total = steps.reduce((a,s)=>a+(s.duration||0),0);
+  if (!total) return '';
+  const W = 350, H = 140, gap = 2;
+  let x = 0, rects = '';
+  const hOf = p => Math.max(18, Math.min(1, (p-55)/(110-55)) * H);
+  for (const s of steps){
+    const w = (s.duration/total)*W, p = stepPct(s), hh = hOf(p), z = zoneOf(p);
+    const hollow = z === ZONES[0];
+    const ww = Math.max(1,w-gap);
+    rects += hollow
+      ? `<rect x="${(x+1).toFixed(1)}" y="${(H-hh+1).toFixed(1)}" width="${Math.max(1,ww-2).toFixed(1)}" height="${(hh-2).toFixed(1)}" rx="4" fill="${z.hex}" fill-opacity="${opts.faded?0.1:0.2}" stroke="${z.hex}" stroke-width="2" vector-effect="non-scaling-stroke"${opts.faded?' stroke-opacity="0.5"':''}></rect>`
+      : `<rect x="${x.toFixed(1)}" y="${(H-hh).toFixed(1)}" width="${ww.toFixed(1)}" height="${hh.toFixed(1)}" rx="4" fill="${z.hex}"${opts.faded?' fill-opacity="0.8"':''}></rect>`;
+    x += w;
+  }
+  let line = '';
+  if (opts.stream){
+    const pts = opts.stream.filter(r=>r[1]>0.5);
+    const tEnd = Math.max(...opts.stream.map(r=>r[0])) || total;
+    const pp = pts.map(r=>{ const px=(r[0]/tEnd)*W, pct=r[1]/THR*100; return `${px.toFixed(1)},${(H-hOf(pct)).toFixed(1)}`; }).join(' ');
+    line = `<polyline fill="none" stroke="#2A0F5C" stroke-width="5" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${pp}"></polyline><polyline fill="none" stroke="#F1EAFF" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${pp}"></polyline>`;
+  }
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Profil der Einheit">${rects}${line}</svg>`;
+}
+function legendHTML(){ return `<div class="legend">${ZONES.map((z,i)=>`<span><i style="${i===0?`border:2px solid ${z.hex};box-sizing:border-box`:`background:${z.hex}`}"></i>${z.name}</span>`).join('')}</div>`; }
+
+/* ---------- Coaching-Texte ---------- */
+function coachLine(ev){
+  const n = ev.cat.name;
+  if (n==='Kraft') return 'Kraft ist dein Verletzungsschutz. Sauber vor schwer.';
+  if (n==='Erholung') return 'Heute zählt nur eins: wirklich locker bleiben. Wenn du dich zurückhalten musst, machst du es richtig.';
+  if (n==='Locker') return 'Grundlage sammeln. Du solltest dich dabei problemlos unterhalten können.';
+  if (n==='Tempo') return 'Zügig, aber kontrolliert. Am Ende sollte noch Luft für einen Abschnitt mehr sein.';
+  if (n==='Schwelle') return 'Tempo halten, nicht steigern. Wenn sich der letzte Block wie der erste anfühlt, hast du alles richtig gemacht.';
+  return 'Kurz und hart. Volle Konzentration auf saubere Wiederholungen, nicht auf Heldentaten.';
+}
+function debrief(ev, act, stream){
+  const pts = (stream||[]).filter(r=>r[1]>0.5);
+  const avgPct = pts.length ? pts.reduce((a,r)=>a+r[1],0)/pts.length/THR*100 : null;
+  const hrPct = act.average_heartrate ? act.average_heartrate / SNAP.settings.lthr * 100 : null;
+  let t = `${(act.distance/1000).toFixed(1)} km in ${mins(act.moving_time)} min, Schnitt ${paceStr(act.average_speed)} /km`;
+  if (act.average_heartrate) t += ` bei ${Math.round(act.average_heartrate)} bpm`;
+  t += '. ';
+  if (/Time Trial/i.test(ev.raw.name)) t += 'Ein Testlauf ist dein Messpunkt: Aus ihm leiten sich deine Zonen ab. Gut, dass er im Kasten ist.';
+  else if (hrPct && hrPct > 92 && ev.cat.name==='Locker') t += 'Für einen lockeren Lauf war der Puls recht hoch. Beim nächsten Mal bewusst langsamer starten.';
+  else t += 'Sauber umgesetzt. Weiter so.';
+  return t;
+}
+
+/* ---------- Ausgleich ---------- */
+function compensate(ev){
+  // Wenn eine Einheit reduziert wurde: Defizit auf den nächsten lockeren Lauf dieser Woche legen, gedeckelt auf +15 %
+  const deficit = ev.baseLoad - ev.load;
+  const wk = monday(ev.date), end = addDays(wk,6);
+  const cand = plan().filter(e => e.id!==ev.id && e.date>ev.date && e.date<=end && e.date>=TODAY && isRun(e.type) && !e.cat.hard && !ST.variants[e.id]);
+  Object.keys(ST.comp).forEach(k=>{ if (ST.comp[k] && ST.comp[k+'_from']===ev.id){ delete ST.comp[k]; delete ST.comp[k+'_from']; } });
+  if (deficit <= 2 || !cand.length) return null;
+  const tgt = cand[0];
+  const cap = tgt.baseLoad * 0.15;
+  const add = Math.min(deficit, cap);
+  const secPerLoad = 3600 / (100*Math.pow(0.82,2)); // lockere Minuten pro Belastungspunkt
+  const extra = Math.round(add*secPerLoad/60)*60;
+  if (extra < 120) return null;
+  ST.comp[tgt.id] = extra; ST.comp[tgt.id+'_from'] = ev.id;
+  return { tgt, extra, rest: Math.round(deficit-add) };
+}
+
+/* ---------- Ansichten ---------- */
+function topBar(){
+  return `${LIVE?'':`<div class="preview">Vorschau mit deinen Intervals-Daten vom ${nice(TODAY)}. Änderungen bleiben nur auf diesem Gerät, nichts wird an Intervals gesendet.</div>`}
+  <header class="top"><div class="logo" role="img" aria-label="ON TRACK"><span>ON</span><span class="tog${dayStatus().on?'':' off'}"><i></i></span><span>TRACK</span></div><p class="small muted">${WDL[wd(TODAY)]}, ${parseD(TODAY).getUTCDate()}. ${MON[parseD(TODAY).getUTCMonth()]}</p></header>`;
+}
+function navBar(r){
+  const t=(k,l)=>`<a href="#${k}" class="${r===k?'act':''}">${l}</a>`;
+  return `<nav class="nav" aria-label="Hauptnavigation"><div>${t('heute','Heute')}${t('woche','Woche')}${t('workouts','Train')}${t('form','Form')}</div></nav>`;
+}
+
+function viewToday(){
+  const wi = weekInfo(monday(TODAY));
+  const todays = plan().filter(e=>e.date===TODAY);
+  const next = plan().find(e=>e.date>TODAY);
+  const doneCount = wi.evs.filter(e=>statusOf(e).s==='done').length;
+  let h = topBar();
+  const ds = dayStatus();
+  const streak = streakDays();
+  h += `<section class="status">
+    <p class="pill ${ds.on?'on':'off'}">${esc(ds.label)}</p>
+    <p class="muted">${esc(ds.sub)}${streak>=2?` · seit ${streak} Tagen am Stück: Läuft.`:''}</p></section>`;
+  h += autoNote();
+  h += dayFormSection(todays);
+  if (!todays.length){
+    h += `<section class="card"><span class="tag">Ruhetag</span><h1>Heute frei</h1><p>Erholung ist Training. ${next?`Weiter geht's ${nice(next.date)} mit <b>${esc(next.name)}</b>.`:''}</p></section>`;
+  }
+  for (const ev of todays) h += todayCard(ev);
+  const comp = Object.keys(ST.comp).filter(k=>!k.endsWith('_from') && ST.comp[k]);
+  if (comp.length){
+    const t = plan().find(e=>String(e.id)===comp[0]);
+    if (t) h += `<p class="note"><b>Ausgleich aktiv:</b> ${nice(t.date)}, ${esc(t.name)} wird um ${mins(ST.comp[comp[0]])} min locker verlängert, damit deine Woche auf Kurs bleibt.</p>`;
+  }
+  h += weekStrip(wi);
+  return h + navBar('heute');
+}
+function todayCard(ev){
+  const st = statusOf(ev);
+  const hasSteps = ev.steps.length > 0;
+  const core = ev.steps.length ? ev.steps.reduce((a,s)=>stepPct(s)>stepPct(a)?s:a, ev.steps[0]) : null;
+  let h = `<section class="card">
+    <div class="row"><span class="tag">${esc(ev.cat.name)}</span>${st.s==='done'?'<span class="chip">Erledigt</span>':`<span class="small" style="color:var(--text)">Auf der Uhr</span>`}</div>
+    <h1>${esc(ev.name)}</h1>`;
+  if (hasSteps) h += `<button class="prof" data-act="detail" data-id="${ev.id}" aria-label="Details öffnen">${profileSVG(ev.steps,64)}<span class="row small" style="justify-content:flex-end;font-weight:700;padding-top:4px">Details ›</span></button>`;
+  h += `<div class="stats"><div><p class="k">Dauer</p><p class="v">${mins(ev.dur)} min</p></div>`;
+  if (core && core.pace) h += `<div><p class="k">Kern-Pace</p><p class="v">${pctToPace(core.pace.end)}–${pctToPace(core.pace.start)}</p></div>`;
+  h += `<div><p class="k">Belastung</p><p class="v">${ev.load}</p></div></div>`;
+  if (ev.variant) h += `<button class="chip" data-act="reset" data-id="${ev.id}">Angepasst: ${VARIANTS[ev.variant]} · zurücksetzen</button>`;
+  if (isRun(ev.type) && st.s!=='done') h += `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="variant" data-v="${k}" data-id="${ev.id}">${l}</button>`).join('')}</div>`;
+  h += `</section>`;
+  if (st.s!=='done') h += `<button class="btn ghost" data-act="unfit" data-id="${ev.id}">Heute nicht fit</button>`;
+  return h;
+}
+function weekStrip(wi){
+  const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
+  let h = `<section class="list" aria-label="Diese Woche"><div class="row"><h2>Diese Woche</h2><p class="small muted">Belastung ${wi.done} von ${wi.planned}</p></div>
+  <div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div><div class="days">`;
+  for (const d of wi.days){
+    const evs = wi.evs.filter(e=>e.date===d);
+    let dot = '<span class="d" style="border:2px solid var(--line)"></span>';
+    if (evs.length){
+      const s = statusOf(evs[0]).s;
+      if (s==='done') dot = '<span class="d" style="background:var(--lime)"></span>';
+      else if (s==='missed') dot = '<span class="d" style="background:#FF6B6B"></span>';
+      else if (s==='today') dot = '<span class="d" style="border:3px solid var(--lime)"></span>';
+      else dot = '<span class="d" style="border:2px solid var(--lilac)"></span>';
+    }
+    h += `<div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="color:${d===TODAY?'var(--text)':'var(--lilac)'};font-weight:${d===TODAY?700:400}">${WD[wd(d)]}</span>${dot}</div>`;
+  }
+  return h + `</div></section>`;
+}
+
+let weekOffset = 0;
+function viewWeek(){
+  const mon = addDays(monday(TODAY), weekOffset*7);
+  const wi = weekInfo(mon);
+  const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
+  let h = topBar();
+  h += `<div class="weekhead"><button data-act="wk" data-d="-1" aria-label="Vorherige Woche">‹</button><h2>${weekOffset===0?'Diese Woche':weekOffset===1?'Nächste Woche':`${parseD(mon).getUTCDate()}.–${parseD(addDays(mon,6)).getUTCDate()}. ${MON[parseD(addDays(mon,6)).getUTCMonth()]}`}</h2><button data-act="wk" data-d="1" aria-label="Nächste Woche">›</button></div>`;
+  if (weekOffset===0) h += `<a href="#ziel" class="btn ghost" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Neuen Plan erstellen</a>`;
+  h += `<div class="row small muted"><span>Belastung geplant ${wi.planned}</span><span>erreicht ${wi.done}</span></div><div class="bar"><i style="width:${pct}%"></i></div>`;
+  h += `<section class="list">`;
+  for (const d of wi.days){
+    const evs = wi.evs.filter(e=>e.date===d);
+    h += `<div class="wday"><p class="lbl${d===TODAY?' today':''}">${nice(d)}${d===TODAY?' · heute':''}</p>`;
+    if (!evs.length) h += `<p class="empty">Ruhetag</p>`;
+    for (const ev of evs){
+      const st = statusOf(ev);
+      const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
+      const meta = st.s==='done' && st.act ? (isRun(st.act.type) ? `${(st.act.distance/1000).toFixed(1)} km · ${mins(st.act.moving_time)} min · ${paceStr(st.act.average_speed)} /km` : `${st.act.name} · ${nice(dateOf(st.act.start_date_local))} · ${mins(st.act.moving_time)} min`) : `${ev.cat.name}${ev.dur?` · ${mins(ev.dur)} min`:''}${ev.variant?` · ${VARIANTS[ev.variant]}`:''}${ev.extra?` · +${mins(ev.extra)} min Ausgleich`:''}${ST.moves[ev.id]?' · verschoben':''}`;
+      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"><span class="stripe" style="background:${ev.cat.col}"></span><span class="t"><span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
+    }
+    h += `</div>`;
+  }
+  // Aktivitäten ohne Plan (z. B. Rad)
+  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
+  if (extras.length){
+    h += `<div class="wday"><p class="lbl">Zusätzlich trainiert</p>`;
+    for (const a of extras) h += `<div class="ev done"><span class="stripe" style="background:var(--line)"></span><span class="t"><span class="n">${esc(a.name)}</span><span class="m">${nice(dateOf(a.start_date_local))} · ${esc(a.type)} · ${mins(a.moving_time)} min</span></span><span class="st muted">${a.icu_training_load??''}</span></div>`;
+    h += `</div>`;
+  }
+  return h + `</section>` + navBar('woche');
+}
+
+function viewDetail(id){
+  const ev = plan().find(e=>String(e.id)===String(id));
+  if (!ev) return viewToday();
+  const st = statusOf(ev);
+  const stream = st.act && SNAP.streams[st.act.id];
+  let h = `<a class="back" href="#${st.s==='done'?'woche':'heute'}">‹ Zurück</a>`;
+  h += `<div style="display:flex;flex-direction:column;gap:8px"><div class="row" style="justify-content:flex-start;gap:8px"><span class="tag" style="background:var(--card)">${esc(ev.cat.name)} · ${mins(ev.dur)} min</span>${st.s==='done'?'<span class="chip" style="background:var(--lime);color:var(--bg)">Läuft.</span>':''}</div><h1>${esc(ev.name)}</h1><p class="small muted">${nice(ev.date)}</p></div>`;
+  if (ev.steps.length){
+    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Helle Linie: deine tatsächliche Pace</p>':''}</section>`;
+  }
+  if (st.s==='done' && st.act){
+    h += `<section class="card"><h2>Coach</h2><p style="line-height:1.5">${esc(debrief(ev, st.act, stream))}</p></section>`;
+    h += `<section class="list"><h2>Wie war's?</h2><div class="fb">${['Leicht','Gut','Hart','Zu hart'].map(x=>`<button data-act="feel" data-id="${ev.id}" data-v="${x}" class="${ST.feel[ev.id]===x?'sel':''}">${x}</button>`).join('')}</div></section>`;
+  }
+  if (ev.steps.length){
+    h += `<section class="steps"><h2 style="margin-bottom:6px">Ablauf</h2>`;
+    for (const s of compress(ev.steps)) h += stepRow(s);
+    h += `</section>`;
+  }
+  if (st.s!=='done') h += `<p class="note">${esc(coachLine(ev))}</p><div class="grid2"><button class="btn ghost" data-act="menu" data-id="${ev.id}">Anpassen</button><button class="btn lime" data-act="noop">Auf der Uhr</button></div>`;
+  return h;
+}
+function fmtDur(sec){ return sec>=60 ? `${Math.round(sec/60*2)/2} min`.replace('.',',') : `${sec} s`; }
+function stepRow(s){
+  const z = zoneOf(stepPct(s));
+  const sw = zz => zz===ZONES[0] ? `border:2px solid ${zz.hex}` : `background:${zz.hex}`;
+  const pace = x => x.pace ? `${pctToPace(x.pace.end)}–${pctToPace(x.pace.start)} /km` : '';
+  if (s.pair){
+    const z2 = zoneOf(stepPct(s.pair));
+    return `<div class="s"><span class="c" style="${sw(z)}"></span><span class="x"><b>${s.n} × ${esc(stepLabel(s))} ${fmtDur(s.duration)}</b><span>${z.name} · ${pace(s)}</span><span style="display:block">+ ${esc(stepLabel(s.pair))} ${fmtDur(s.pair.duration)} · ${pace(s.pair)}</span></span><span class="dur">${fmtDur(s.n*(s.duration+s.pair.duration))}</span></div>`;
+  }
+  return `<div class="s"><span class="c" style="${sw(z)}"></span><span class="x"><b>${s.n>1?`${s.n} × `:''}${esc(stepLabel(s))}</b><span>${z.name}${s.pace?` · ${pace(s)}`:''}</span></span><span class="dur">${fmtDur(s.n>1?s.duration*s.n:s.duration)}</span></div>`;
+}
+function compress(steps){
+  // Wiederholungen zusammenfassen: gleiche Schritte und gleiche Paare (Block + Pause)
+  const same = (a,b) => a && b && a.duration===b.duration && stepPct(a)===stepPct(b) && stepLabel(a)===stepLabel(b);
+  const out = []; let i = 0;
+  while (i < steps.length){
+    const a = steps[i], b = steps[i+1];
+    let k = 1;
+    if (b && !same(a,b)){
+      while (same(steps[i+2*k], a) && same(steps[i+2*k+1], b)) k++;
+      if (k >= 2){ out.push(Object.assign({n:k, pair:b}, a)); i += 2*k; continue; }
+    }
+    k = 1; while (same(steps[i+k], a)) k++;
+    out.push(Object.assign({n:k}, a)); i += k;
+  }
+  return out;
+}
+
+/*__FEATURES__*/
+/* ---------- Sheets ---------- */
+function openSheet(html){ closeSheet(); const d=document.createElement('div'); d.className='scrim'; d.id='scrim'; d.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><span class="grab"></span>${html}</div>`; d.addEventListener('click',e=>{ if(e.target===d) closeSheet(); }); document.body.appendChild(d); }
+function closeSheet(){ const s=$('#scrim'); if(s) s.remove(); }
+function toast(t){ const o=document.createElement('div'); o.className='toast'; o.textContent=t; document.body.appendChild(o); setTimeout(()=>o.remove(),3200); }
+
+function menuSheet(id){
+  const ev = plan().find(e=>String(e.id)===String(id)); if(!ev) return;
+  const st = statusOf(ev);
+  let h = `<h2>${esc(ev.name)}</h2><p class="small muted">${nice(ev.date)} · ${ev.cat.name} · ${mins(ev.dur)} min</p>`;
+  h += `<button class="btn" data-act="detail" data-id="${ev.id}">Details ansehen</button>`;
+  if (st.s!=='done' && ev.date>=TODAY){
+    h += `<button class="btn" data-act="move" data-id="${ev.id}">Verschieben</button>`;
+    if (isRun(ev.type)) h += `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="variant" data-v="${k}" data-id="${ev.id}">${l}</button>`).join('')}</div>`;
+    h += `<button class="btn ghost" data-act="remove" data-id="${ev.id}">Streichen</button>`;
+  }
+  openSheet(h);
+}
+function conflict(ev, day){
+  // Ampel: rot = harte Einheit am selben Tag, gelb = harte Einheit am Vortag/Folgetag oder schon eine Einheit am Tag
+  const others = plan().filter(e=>e.id!==ev.id);
+  const on = others.filter(e=>e.date===day);
+  const near = others.filter(e=>e.date===addDays(day,-1)||e.date===addDays(day,1));
+  if (on.some(e=>e.cat.hard) && ev.cat.hard) return { c:'r', why:'Am selben Tag liegt schon eine harte Einheit.' };
+  if (ev.cat.hard && near.some(e=>e.cat.hard)) return { c:'y', why:`Direkt daneben liegt ${near.find(e=>e.cat.hard).name}. Zwei harte Tage hintereinander erhöhen das Verletzungsrisiko.` };
+  if (on.length) return { c:'y', why:`An dem Tag steht schon ${on[0].name}. Doppeltag möglich, aber anstrengend.` };
+  return { c:'g', why:'Passt gut.' };
+}
+function moveSheet(id){
+  const ev = plan().find(e=>String(e.id)===String(id)); if(!ev) return;
+  const mon = monday(ev.date);
+  let h = `<h2>Verschieben</h2><p class="small muted">${esc(ev.name)} · aktuell ${nice(ev.date)}</p><div class="mv">`;
+  for (let i=0;i<7;i++){
+    const d = addDays(mon,i);
+    if (d < TODAY){ h += `<button class="x" disabled aria-label="${WDL[wd(d)]} vorbei"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; continue; }
+    const c = d===ev.date ? {c:'g'} : conflict(ev,d);
+    h += `<button class="${c.c}${d===ev.date?' cur':''}" data-act="moveto" data-id="${ev.id}" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`;
+  }
+  h += `</div><p class="hint" id="mvhint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`;
+  openSheet(h);
+}
+function unfitSheet(id){
+  openSheet(`<h2>Heute nicht fit</h2><p class="small muted">Was ist los? Der Plan passt sich an.</p>
+  <button class="btn" data-act="unfit-go" data-v="zeit" data-id="${id}">Wenig Zeit</button>
+  <button class="btn" data-act="unfit-go" data-v="muede" data-id="${id}">Müde oder schlecht geschlafen</button>
+  <button class="btn" data-act="unfit-go" data-v="krank" data-id="${id}">Krank oder Schmerzen</button>`);
+}
+
+/* ---------- Aktionen ---------- */
+function setVariant(id, v){
+  const ev0 = plan().find(e=>String(e.id)===String(id));
+  if (ST.variants[id]===v) delete ST.variants[id]; else ST.variants[id]=v;
+  const ev = plan().find(e=>String(e.id)===String(id));
+  const c = compensate(ev);
+  save(); closeSheet(); render();
+  if (c) toast(`Ausgleich: ${WD[wd(c.tgt.date)]} ${c.tgt.name} +${mins(c.extra)} min locker`);
+  else if (ev.load < ev.baseLoad) toast('Angepasst. Der kleine Rest wird nicht nachgeholt, das ist okay.');
+  else toast(ST.variants[id] ? `Angepasst: ${VARIANTS[v]}` : 'Zurückgesetzt');
+}
+document.addEventListener('click', e=>{
+  const b = e.target.closest('[data-act]'); if(!b) return;
+  const { act, id, v, d } = b.dataset;
+  if (act==='detail'){ closeSheet(); location.hash = `#detail-${id}`; }
+  if (act==='menu') menuSheet(id);
+  if (act==='variant') setVariant(id, v);
+  if (act==='reset'){ delete ST.variants[id]; compensate(plan().find(x=>String(x.id)===String(id))); save(); render(); toast('Zurückgesetzt'); }
+  if (act==='move') moveSheet(id);
+  if (act==='moveto'){
+    const ev = plan().find(x=>String(x.id)===String(id));
+    const c = d===ev.date ? null : conflict(ev,d);
+    if (c && c.c!=='g' && b.dataset.confirm!=='1'){ $('#mvhint').textContent = `${c.why} Nochmal tippen zum Bestätigen.`; document.querySelectorAll('.mv [data-confirm]').forEach(x=>x.dataset.confirm=''); b.dataset.confirm='1'; return; }
+    if (d===dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id]=d;
+    save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+  }
+  if (act==='remove'){ ST.removed[id]=true; save(); closeSheet(); render(); toast('Gestrichen. Lockere Einheiten holen wir nicht nach.'); }
+  if (act==='unfit') unfitSheet(id);
+  if (act==='unfit-go'){
+    ST.unfit[TODAY]=v;
+    if (v==='zeit') setVariant(id,'kuerzer');
+    if (v==='muede') setVariant(id,'leichter');
+    if (v==='krank'){ ST.removed[id]=true; plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard).forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); }
+  }
+  if (act==='wk'){ weekOffset = Math.max(-1, Math.min(3, weekOffset + Number(d))); render(); }
+  if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
+  if (act==='noop') toast('Liegt schon auf deiner Uhr.');
+});
+
+function render(){
+  try { autoReplan(); } catch(e){}
+  const h = location.hash.replace('#','') || 'heute';
+  const m = h.match(/^([a-z]+)(?:-(\d+))?$/) || [null,'heute']; const r = m[1], id = m[2];
+  const root = $('#root');
+  const V = { woche:viewWeek, detail:()=>viewDetail(id), form:viewForm, workouts:viewWorkouts, gen:viewGenerated, bib:()=>viewLibrary(id), ziel:viewGoal, planvorschau:viewPlanPreview };
+  root.innerHTML = `<main class="app">${(V[r]||viewToday)()}</main>`;
+}
+addEventListener('hashchange', ()=>{ window.scrollTo(0,0); render(); });
+function loginView(msg){
+  return `<main class="app" style="justify-content:center;min-height:90vh">
+    <div class="logo" style="font-size:32px;justify-content:center"><span>ON</span><span class="tog off" style="width:52px;height:30px;padding:4px"><i style="width:22px;height:22px"></i></span><span>TRACK</span></div>
+    <form id="loginform" class="note" style="display:flex;flex-direction:column;gap:12px">
+      <label class="small muted" style="display:flex;flex-direction:column;gap:6px">Zugangscode
+        <input type="password" name="token" autocomplete="current-password" style="height:48px;border-radius:14px;border:2px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font-family:inherit;font-size:16px"></label>
+      <p class="small" style="color:#FF6B6B;min-height:18px" role="alert">${msg||''}</p>
+      <button class="btn lime" type="submit">Los</button></form></main>`;
+}
+async function loadLive(token){
+  const r = await fetch(`${CONFIG.apiBase}/api/snapshot`, { headers:{ Authorization:`Bearer ${token}` } });
+  if (r.status === 401) return 'auth';
+  if (!r.ok) return 'err';
+  SNAP = await r.json(); TODAY = SNAP.today; THR = SNAP.settings.threshold_pace_ms;
+  return 'ok';
+}
+async function init(){
+  if (LIVE){
+    let token = ''; try { token = localStorage.getItem('ontrack.token') || ''; } catch(e){}
+    if (!token){ $('#root').innerHTML = loginView(); return; }
+    $('#root').innerHTML = `<main class="app" style="justify-content:center;min-height:90vh;text-align:center"><p class="muted">Lade deine Daten …</p></main>`;
+    let res = 'err';
+    try { res = await loadLive(token); } catch(e){}
+    if (res === 'auth'){ try { localStorage.removeItem('ontrack.token'); } catch(e){} $('#root').innerHTML = loginView('Der Zugangscode stimmt nicht.'); return; }
+    if (res === 'err' && !SNAP.events.length){ $('#root').innerHTML = loginView('Server nicht erreichbar. Bitte später nochmal versuchen.'); return; }
+  }
+  render();
+}
+document.addEventListener('submit', e => {
+  if (e.target.id !== 'loginform') return;
+  e.preventDefault();
+  const t = new FormData(e.target).get('token').trim();
+  if (!t) return;
+  try { localStorage.setItem('ontrack.token', t); } catch(e){}
+  init();
+});
+init();
+</script>
+</body>
+</html>

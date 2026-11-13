@@ -1,0 +1,8 @@
+name = "ontrack"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+ATHLETE_ID = "i612511"
+# Nach dem Hosting der App hier deren Adresse eintragen, z. B. "https://alxwll.github.io"
+ALLOWED_ORIGIN = "*"

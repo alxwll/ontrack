@@ -1,0 +1,5 @@
+dist/
+live/
+*.key
+snapshot*.json
+!empty_snapshot.json
