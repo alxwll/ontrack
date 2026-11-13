@@ -10,7 +10,7 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-      'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
     };
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
 
@@ -72,9 +72,23 @@ export default {
         return json(snap, 200, cors);
       }
 
-      // Einheit ändern (Datum verschieben oder Schritte anpassen). Wird von der App erst genutzt,
-      // wenn das Schreiben nach Intervals bewusst eingeschaltet ist.
+      // Neues Workout anlegen (Train now: auf die Uhr oder für später)
+      if (req.method === 'POST' && url.pathname === '/api/events') {
+        const b = await req.json();
+        const ev = {
+          category: 'WORKOUT', type: b.type || 'Run',
+          start_date_local: b.start_date_local, name: b.name, description: b.description,
+        };
+        const r = await iv(`/athlete/${env.ATHLETE_ID}/events`, { method: 'POST', body: JSON.stringify(ev) });
+        return json(await r.json(), r.status, cors);
+      }
+
+      // Einheit ändern (Datum verschieben oder Schritte anpassen) bzw. löschen
       const m = url.pathname.match(/^\/api\/events\/(\d+)$/);
+      if (req.method === 'DELETE' && m) {
+        const r = await iv(`/athlete/${env.ATHLETE_ID}/events/${m[1]}`, { method: 'DELETE' });
+        return json({ ok: r.ok }, r.status, cors);
+      }
       if (req.method === 'PUT' && m) {
         const body = await req.json();
         const allowed = {};

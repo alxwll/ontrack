@@ -558,8 +558,13 @@ document.addEventListener('click', e => {
     location.hash = '#gen';
   }
   if (act === 'lvl' && GEN){ GEN.level = Number(v); GEN.steps = libWorkout(GEN.t, GEN.level); render(); }
-  if (act === 'tnsend') toast('Geht auf die Uhr, sobald der Server läuft. In der Vorschau wird nichts gesendet.');
-  if (act === 'tnlater') toast('Einplanen kommt mit dem Server. Gemerkt ist die Idee schon.');
+  if (act === 'tnsend'){ if (!LIVE) toast('In der Vorschau wird nichts gesendet. In der Live-App geht das Workout direkt auf die Uhr.'); else pushCreate(GEN, TODAY); }
+  if (act === 'tnlater'){
+    let h = `<h2>Für später einplanen</h2><p class="small muted">An welchem Tag?</p><div class="mv">`;
+    for (let i = 1; i <= 7; i++){ const d = addDays(TODAY, i); const c = conflict({ id:-1, cat:{ hard: GEN && ['schwelle','vo2','tempo','berg','test','speed'].includes(GEN.t.cat) } }, d); h += `<button class="${c.c}" data-act="tnat" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; }
+    openSheet(h + `</div><p class="hint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`);
+  }
+  if (act === 'tnat'){ closeSheet(); if (!LIVE) toast('In der Vorschau wird nichts gesendet.'); else pushCreate(GEN, b.dataset.d); }
   if (act === 'planok') toast('Gespeichert für später. Übernommen wird der Plan, sobald der Server läuft.');
 });
 
@@ -632,7 +637,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const { act, id } = b.dataset;
   const a = ST.auto[id];
-  if (act === 'autook' && a){ a.seen = true; save(); render(); }
+  if (act === 'autook' && a){ a.seen = true; save(); render(); if (!a.none){ pushMove(id, a.day); pushDelete(String(a.to)); } }
   if (act === 'autoundo' && a){
     delete ST.moves[id]; if (a.to) delete ST.removed[a.to];
     ST.auto[id] = { none:true, undone:true, seen:true, from:a.from, name:a.name };
@@ -804,6 +809,7 @@ function endDrag(cancel){
   const apply = () => {
     if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[ev.id]; else ST.moves[ev.id] = d;
     save(); render(); toast(`Verschoben auf ${nice(d)}${c.c!=='g' ? ' · ' + c.why : ''}`);
+    pushMove(String(ev.id), d);
   };
   if (c.c === 'r'){
     openSheet(`<h2>Trotzdem verschieben?</h2><p style="line-height:1.5">${esc(c.why)}</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="dragyes" data-id="${ev.id}" data-d="${d}" style="background:#FF6B6B;color:var(--bg)">Verschieben</button></div>`);
@@ -822,5 +828,60 @@ document.addEventListener('click', e => {
     const { id, d } = b.dataset; const ev = plan().find(v => String(v.id) === id);
     if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id] = d;
     save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+    pushMove(id, d);
   }
 });
+
+
+/* ---------- Zurückschreiben nach Intervals.icu (nur Live-App) ---------- */
+function compTargets(){ return Object.keys(ST.comp).filter(k => !k.endsWith('_from') && ST.comp[k]); }
+async function api(method, path, body){
+  let token = ''; try { token = localStorage.getItem('ontrack.token') || ''; } catch(e){}
+  const r = await fetch(`${CONFIG.apiBase}${path}`, { method, headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json().catch(() => ({}));
+}
+let syncQueue = Promise.resolve(), syncPending = 0;
+function sync(label, fn){
+  if (!LIVE) return;
+  syncPending++;
+  syncQueue = syncQueue.then(fn).then(() => {
+    if (--syncPending === 0){ toast('Gespeichert · geht auf deine Uhr'); refreshLive(); }
+  }).catch(err => {
+    syncPending = Math.max(0, syncPending-1);
+    toast(`${label} konnte nicht an Intervals gesendet werden. Bitte später nochmal versuchen.`);
+  });
+}
+async function refreshLive(){
+  let token = ''; try { token = localStorage.getItem('ontrack.token') || ''; } catch(e){}
+  try { if (await loadLive(token) === 'ok') render(); } catch(e){}
+}
+const fmtSec = s => s % 60 ? `${Math.round(s)}s` : `${s/60}m`;
+function stepsToText(steps){
+  const rng = s => { const a = Math.round(s.pace.start), b = Math.round(s.pace.end); return s.ramp ? `ramp ${a}-${b}%` : `${Math.min(a,b)}-${Math.max(a,b)}%`; };
+  const line = s => `- ${(s.text || stepLabel(s)).replace(/[\n-]/g,' ').trim()} ${fmtSec(s.duration)}${s.pace ? ` ${rng(s)} Pace` : ''}`;
+  return compress(steps).map(s => s.pair ? `\n${s.n}x\n${line(s)}\n${line(s.pair)}\n` : s.n > 1 ? `\n${s.n}x\n${line(s)}\n` : line(s)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function pushMove(id, d){ sync('Das Verschieben', () => api('PUT', `/api/events/${id}`, { start_date_local: `${d}T00:00:00` })); }
+function pushDelete(id){ sync('Das Streichen', () => api('DELETE', `/api/events/${id}`)); }
+function pushShape(id){
+  const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw || isStrength(raw.type)) return;
+  const changed = ST.variants[id] || ST.comp[id];
+  if (!changed){
+    const o = ST.orig[id]; if (!o) return;
+    sync('Das Zurücksetzen', async () => { await api('PUT', `/api/events/${id}`, { name:o.name, description:o.description || stepsToText(flatten(o.workout_doc && o.workout_doc.steps)) }); delete ST.orig[id]; save(); });
+    return;
+  }
+  if (!ST.orig[id]) { ST.orig[id] = { name:raw.name, description:raw.description || '', workout_doc:raw.workout_doc, load:raw.icu_training_load }; save(); }
+  const ev = buildEvent(raw);
+  const base = cleanName(ST.orig[id].name).replace(/^On\.Track · /,'');
+  const tag = ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
+  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${base}${tag}`, description: stepsToText(ev.steps) }));
+}
+function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
+function pushCreate(gen, day){
+  if (!gen) return;
+  const steps = flatSteps(gen.steps);
+  sync('Das Workout', () => api('POST', '/api/events', { type:'Run', start_date_local:`${day}T00:00:00`, name:`On.Track · ${gen.t.name}`, description: stepsToText(steps) }));
+  toast(day === TODAY ? 'Wird an deine Uhr gesendet …' : `Wird für ${nice(day)} eingeplant …`);
+}

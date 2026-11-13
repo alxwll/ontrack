@@ -121,7 +121,7 @@ const CONFIG = { apiBase: "https://ontrack.x-sall.workers.dev" }; // später: UR
 /* ---------- Daten ---------- */
 let SNAP = JSON.parse(document.getElementById('snapshot').textContent);
 const store = (() => { try { const k='ontrack.v1'; return { get:()=>JSON.parse(localStorage.getItem(k)||'{}'), set:v=>localStorage.setItem(k,JSON.stringify(v)) }; } catch(e){ return { get:()=>({}), set:()=>{} }; } })();
-const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{} }, store.get());
+const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{} }, store.get());
 const save = () => { try { store.set(ST); } catch(e){} };
 
 let TODAY = SNAP.today;
@@ -222,7 +222,10 @@ function category(e, steps){
   } else z = /Erholung|Shakeout/i.test(e.name) ? ZONES[0] : ZONES[1];
   return { name:z.name, col:z.col, hard: hardSec >= 480, key: hardSec >= 480 || (e.moving_time||0) >= 4800 };
 }
-function buildEvent(e){
+function buildEvent(e0){
+  // Hat On. Track das Workout schon in Intervals geändert, rechnen wir vom Original aus
+  const o = ST.orig && ST.orig[e0.id];
+  const e = o ? Object.assign({}, e0, { workout_doc:o.workout_doc, icu_training_load:o.load, name:o.name }) : e0;
   const base = flatten(e.workout_doc && e.workout_doc.steps);
   let steps = base;
   const v = ST.variants[e.id];
@@ -239,7 +242,7 @@ function buildEvent(e){
   const ratio = base.length ? estLoad(steps)/Math.max(estLoad(base),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
   const cat = category(e, base);
-  return { raw:e, id:e.id, date:eventDate(e), name:cleanName(e.name), type:e.type, steps, base, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra };
+  return { raw:e0, id:e.id, date:eventDate(e), name:cleanName(e.name), type:e.type, steps, base, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
@@ -1028,8 +1031,13 @@ document.addEventListener('click', e => {
     location.hash = '#gen';
   }
   if (act === 'lvl' && GEN){ GEN.level = Number(v); GEN.steps = libWorkout(GEN.t, GEN.level); render(); }
-  if (act === 'tnsend') toast('Geht auf die Uhr, sobald der Server läuft. In der Vorschau wird nichts gesendet.');
-  if (act === 'tnlater') toast('Einplanen kommt mit dem Server. Gemerkt ist die Idee schon.');
+  if (act === 'tnsend'){ if (!LIVE) toast('In der Vorschau wird nichts gesendet. In der Live-App geht das Workout direkt auf die Uhr.'); else pushCreate(GEN, TODAY); }
+  if (act === 'tnlater'){
+    let h = `<h2>Für später einplanen</h2><p class="small muted">An welchem Tag?</p><div class="mv">`;
+    for (let i = 1; i <= 7; i++){ const d = addDays(TODAY, i); const c = conflict({ id:-1, cat:{ hard: GEN && ['schwelle','vo2','tempo','berg','test','speed'].includes(GEN.t.cat) } }, d); h += `<button class="${c.c}" data-act="tnat" data-d="${d}"><span>${WD[wd(d)]}</span><span>${parseD(d).getUTCDate()}.</span></button>`; }
+    openSheet(h + `</div><p class="hint">Grün passt, gelb geht mit Hinweis, rot kollidiert mit einer harten Einheit.</p>`);
+  }
+  if (act === 'tnat'){ closeSheet(); if (!LIVE) toast('In der Vorschau wird nichts gesendet.'); else pushCreate(GEN, b.dataset.d); }
   if (act === 'planok') toast('Gespeichert für später. Übernommen wird der Plan, sobald der Server läuft.');
 });
 
@@ -1102,7 +1110,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const { act, id } = b.dataset;
   const a = ST.auto[id];
-  if (act === 'autook' && a){ a.seen = true; save(); render(); }
+  if (act === 'autook' && a){ a.seen = true; save(); render(); if (!a.none){ pushMove(id, a.day); pushDelete(String(a.to)); } }
   if (act === 'autoundo' && a){
     delete ST.moves[id]; if (a.to) delete ST.removed[a.to];
     ST.auto[id] = { none:true, undone:true, seen:true, from:a.from, name:a.name };
@@ -1274,6 +1282,7 @@ function endDrag(cancel){
   const apply = () => {
     if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[ev.id]; else ST.moves[ev.id] = d;
     save(); render(); toast(`Verschoben auf ${nice(d)}${c.c!=='g' ? ' · ' + c.why : ''}`);
+    pushMove(String(ev.id), d);
   };
   if (c.c === 'r'){
     openSheet(`<h2>Trotzdem verschieben?</h2><p style="line-height:1.5">${esc(c.why)}</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="dragyes" data-id="${ev.id}" data-d="${d}" style="background:#FF6B6B;color:var(--bg)">Verschieben</button></div>`);
@@ -1292,8 +1301,63 @@ document.addEventListener('click', e => {
     const { id, d } = b.dataset; const ev = plan().find(v => String(v.id) === id);
     if (d === dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id] = d;
     save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+    pushMove(id, d);
   }
 });
+
+
+/* ---------- Zurückschreiben nach Intervals.icu (nur Live-App) ---------- */
+function compTargets(){ return Object.keys(ST.comp).filter(k => !k.endsWith('_from') && ST.comp[k]); }
+async function api(method, path, body){
+  let token = ''; try { token = localStorage.getItem('ontrack.token') || ''; } catch(e){}
+  const r = await fetch(`${CONFIG.apiBase}${path}`, { method, headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json().catch(() => ({}));
+}
+let syncQueue = Promise.resolve(), syncPending = 0;
+function sync(label, fn){
+  if (!LIVE) return;
+  syncPending++;
+  syncQueue = syncQueue.then(fn).then(() => {
+    if (--syncPending === 0){ toast('Gespeichert · geht auf deine Uhr'); refreshLive(); }
+  }).catch(err => {
+    syncPending = Math.max(0, syncPending-1);
+    toast(`${label} konnte nicht an Intervals gesendet werden. Bitte später nochmal versuchen.`);
+  });
+}
+async function refreshLive(){
+  let token = ''; try { token = localStorage.getItem('ontrack.token') || ''; } catch(e){}
+  try { if (await loadLive(token) === 'ok') render(); } catch(e){}
+}
+const fmtSec = s => s % 60 ? `${Math.round(s)}s` : `${s/60}m`;
+function stepsToText(steps){
+  const rng = s => { const a = Math.round(s.pace.start), b = Math.round(s.pace.end); return s.ramp ? `ramp ${a}-${b}%` : `${Math.min(a,b)}-${Math.max(a,b)}%`; };
+  const line = s => `- ${(s.text || stepLabel(s)).replace(/[\n-]/g,' ').trim()} ${fmtSec(s.duration)}${s.pace ? ` ${rng(s)} Pace` : ''}`;
+  return compress(steps).map(s => s.pair ? `\n${s.n}x\n${line(s)}\n${line(s.pair)}\n` : s.n > 1 ? `\n${s.n}x\n${line(s)}\n` : line(s)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function pushMove(id, d){ sync('Das Verschieben', () => api('PUT', `/api/events/${id}`, { start_date_local: `${d}T00:00:00` })); }
+function pushDelete(id){ sync('Das Streichen', () => api('DELETE', `/api/events/${id}`)); }
+function pushShape(id){
+  const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw || isStrength(raw.type)) return;
+  const changed = ST.variants[id] || ST.comp[id];
+  if (!changed){
+    const o = ST.orig[id]; if (!o) return;
+    sync('Das Zurücksetzen', async () => { await api('PUT', `/api/events/${id}`, { name:o.name, description:o.description || stepsToText(flatten(o.workout_doc && o.workout_doc.steps)) }); delete ST.orig[id]; save(); });
+    return;
+  }
+  if (!ST.orig[id]) { ST.orig[id] = { name:raw.name, description:raw.description || '', workout_doc:raw.workout_doc, load:raw.icu_training_load }; save(); }
+  const ev = buildEvent(raw);
+  const base = cleanName(ST.orig[id].name).replace(/^On\.Track · /,'');
+  const tag = ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
+  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${base}${tag}`, description: stepsToText(ev.steps) }));
+}
+function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
+function pushCreate(gen, day){
+  if (!gen) return;
+  const steps = flatSteps(gen.steps);
+  sync('Das Workout', () => api('POST', '/api/events', { type:'Run', start_date_local:`${day}T00:00:00`, name:`On.Track · ${gen.t.name}`, description: stepsToText(steps) }));
+  toast(day === TODAY ? 'Wird an deine Uhr gesendet …' : `Wird für ${nice(day)} eingeplant …`);
+}
 
 /* ---------- Sheets ---------- */
 function openSheet(html){ closeSheet(); const d=document.createElement('div'); d.className='scrim'; d.id='scrim'; d.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><span class="grab"></span>${html}</div>`; d.addEventListener('click',e=>{ if(e.target===d) closeSheet(); }); document.body.appendChild(d); }
@@ -1332,10 +1396,12 @@ function unfitSheet(id){
 /* ---------- Aktionen ---------- */
 function setVariant(id, v){
   const ev0 = plan().find(e=>String(e.id)===String(id));
+  const before = compTargets();
   if (ST.variants[id]===v) delete ST.variants[id]; else ST.variants[id]=v;
   const ev = plan().find(e=>String(e.id)===String(id));
   const c = compensate(ev);
   save(); closeSheet(); render();
+  syncShapes([id, ...before, ...compTargets()]);
   if (c) toast(`Ausgleich: ${WD[wd(c.tgt.date)]} ${c.tgt.name} +${mins(c.extra)} min locker`);
   else if (ev.load < ev.baseLoad) toast('Angepasst. Der kleine Rest wird nicht nachgeholt, das ist okay.');
   else toast(ST.variants[id] ? `Angepasst: ${VARIANTS[v]}` : 'Zurückgesetzt');
@@ -1346,7 +1412,7 @@ document.addEventListener('click', e=>{
   if (act==='detail'){ closeSheet(); location.hash = `#detail-${id}`; }
   if (act==='menu') menuSheet(id);
   if (act==='variant') setVariant(id, v);
-  if (act==='reset'){ delete ST.variants[id]; compensate(plan().find(x=>String(x.id)===String(id))); save(); render(); toast('Zurückgesetzt'); }
+  if (act==='reset'){ const before = compTargets(); delete ST.variants[id]; compensate(plan().find(x=>String(x.id)===String(id))); save(); render(); toast('Zurückgesetzt'); syncShapes([id, ...before, ...compTargets()]); }
   if (act==='move') moveSheet(id);
   if (act==='moveto'){
     const ev = plan().find(x=>String(x.id)===String(id));
@@ -1354,14 +1420,17 @@ document.addEventListener('click', e=>{
     if (c && c.c!=='g' && b.dataset.confirm!=='1'){ $('#mvhint').textContent = `${c.why} Nochmal tippen zum Bestätigen.`; document.querySelectorAll('.mv [data-confirm]').forEach(x=>x.dataset.confirm=''); b.dataset.confirm='1'; return; }
     if (d===dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id]=d;
     save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+    pushMove(id, d);
   }
-  if (act==='remove'){ ST.removed[id]=true; save(); closeSheet(); render(); toast('Gestrichen. Lockere Einheiten holen wir nicht nach.'); }
+  if (act==='remove'){
+    if (LIVE && b.dataset.ok!=='1'){ openSheet(`<h2>Einheit streichen?</h2><p style="line-height:1.5">Sie wird auch aus Intervals und von deiner Uhr entfernt.</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="remove" data-ok="1" data-id="${id}" style="background:#FF6B6B;color:var(--bg)">Streichen</button></div>`); return; }
+    ST.removed[id]=true; save(); closeSheet(); render(); toast('Gestrichen. Lockere Einheiten holen wir nicht nach.'); pushDelete(id); }
   if (act==='unfit') unfitSheet(id);
   if (act==='unfit-go'){
     ST.unfit[TODAY]=v;
     if (v==='zeit') setVariant(id,'kuerzer');
     if (v==='muede') setVariant(id,'leichter');
-    if (v==='krank'){ ST.removed[id]=true; plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard).forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); }
+    if (v==='krank'){ ST.removed[id]=true; const hard = plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard); hard.forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); pushDelete(id); syncShapes(hard.map(x=>String(x.id))); }
   }
   if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
   if (act==='noop') toast('Liegt schon auf deiner Uhr.');

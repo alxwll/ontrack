@@ -121,7 +121,7 @@ const CONFIG = { apiBase: null /*__API__*/ }; // später: URL des Cloudflare Wor
 /* ---------- Daten ---------- */
 let SNAP = JSON.parse(document.getElementById('snapshot').textContent);
 const store = (() => { try { const k='ontrack.v1'; return { get:()=>JSON.parse(localStorage.getItem(k)||'{}'), set:v=>localStorage.setItem(k,JSON.stringify(v)) }; } catch(e){ return { get:()=>({}), set:()=>{} }; } })();
-const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{} }, store.get());
+const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{} }, store.get());
 const save = () => { try { store.set(ST); } catch(e){} };
 
 let TODAY = SNAP.today;
@@ -222,7 +222,10 @@ function category(e, steps){
   } else z = /Erholung|Shakeout/i.test(e.name) ? ZONES[0] : ZONES[1];
   return { name:z.name, col:z.col, hard: hardSec >= 480, key: hardSec >= 480 || (e.moving_time||0) >= 4800 };
 }
-function buildEvent(e){
+function buildEvent(e0){
+  // Hat On. Track das Workout schon in Intervals geändert, rechnen wir vom Original aus
+  const o = ST.orig && ST.orig[e0.id];
+  const e = o ? Object.assign({}, e0, { workout_doc:o.workout_doc, icu_training_load:o.load, name:o.name }) : e0;
   const base = flatten(e.workout_doc && e.workout_doc.steps);
   let steps = base;
   const v = ST.variants[e.id];
@@ -239,7 +242,7 @@ function buildEvent(e){
   const ratio = base.length ? estLoad(steps)/Math.max(estLoad(base),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
   const cat = category(e, base);
-  return { raw:e, id:e.id, date:eventDate(e), name:cleanName(e.name), type:e.type, steps, base, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra };
+  return { raw:e0, id:e.id, date:eventDate(e), name:cleanName(e.name), type:e.type, steps, base, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
@@ -506,10 +509,12 @@ function unfitSheet(id){
 /* ---------- Aktionen ---------- */
 function setVariant(id, v){
   const ev0 = plan().find(e=>String(e.id)===String(id));
+  const before = compTargets();
   if (ST.variants[id]===v) delete ST.variants[id]; else ST.variants[id]=v;
   const ev = plan().find(e=>String(e.id)===String(id));
   const c = compensate(ev);
   save(); closeSheet(); render();
+  syncShapes([id, ...before, ...compTargets()]);
   if (c) toast(`Ausgleich: ${WD[wd(c.tgt.date)]} ${c.tgt.name} +${mins(c.extra)} min locker`);
   else if (ev.load < ev.baseLoad) toast('Angepasst. Der kleine Rest wird nicht nachgeholt, das ist okay.');
   else toast(ST.variants[id] ? `Angepasst: ${VARIANTS[v]}` : 'Zurückgesetzt');
@@ -520,7 +525,7 @@ document.addEventListener('click', e=>{
   if (act==='detail'){ closeSheet(); location.hash = `#detail-${id}`; }
   if (act==='menu') menuSheet(id);
   if (act==='variant') setVariant(id, v);
-  if (act==='reset'){ delete ST.variants[id]; compensate(plan().find(x=>String(x.id)===String(id))); save(); render(); toast('Zurückgesetzt'); }
+  if (act==='reset'){ const before = compTargets(); delete ST.variants[id]; compensate(plan().find(x=>String(x.id)===String(id))); save(); render(); toast('Zurückgesetzt'); syncShapes([id, ...before, ...compTargets()]); }
   if (act==='move') moveSheet(id);
   if (act==='moveto'){
     const ev = plan().find(x=>String(x.id)===String(id));
@@ -528,14 +533,17 @@ document.addEventListener('click', e=>{
     if (c && c.c!=='g' && b.dataset.confirm!=='1'){ $('#mvhint').textContent = `${c.why} Nochmal tippen zum Bestätigen.`; document.querySelectorAll('.mv [data-confirm]').forEach(x=>x.dataset.confirm=''); b.dataset.confirm='1'; return; }
     if (d===dateOf(ev.raw.start_date_local)) delete ST.moves[id]; else ST.moves[id]=d;
     save(); closeSheet(); render(); toast(`Verschoben auf ${nice(d)}`);
+    pushMove(id, d);
   }
-  if (act==='remove'){ ST.removed[id]=true; save(); closeSheet(); render(); toast('Gestrichen. Lockere Einheiten holen wir nicht nach.'); }
+  if (act==='remove'){
+    if (LIVE && b.dataset.ok!=='1'){ openSheet(`<h2>Einheit streichen?</h2><p style="line-height:1.5">Sie wird auch aus Intervals und von deiner Uhr entfernt.</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="remove" data-ok="1" data-id="${id}" style="background:#FF6B6B;color:var(--bg)">Streichen</button></div>`); return; }
+    ST.removed[id]=true; save(); closeSheet(); render(); toast('Gestrichen. Lockere Einheiten holen wir nicht nach.'); pushDelete(id); }
   if (act==='unfit') unfitSheet(id);
   if (act==='unfit-go'){
     ST.unfit[TODAY]=v;
     if (v==='zeit') setVariant(id,'kuerzer');
     if (v==='muede') setVariant(id,'leichter');
-    if (v==='krank'){ ST.removed[id]=true; plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard).forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); }
+    if (v==='krank'){ ST.removed[id]=true; const hard = plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard); hard.forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); pushDelete(id); syncShapes(hard.map(x=>String(x.id))); }
   }
   if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
   if (act==='noop') toast('Liegt schon auf deiner Uhr.');
