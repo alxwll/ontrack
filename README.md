@@ -7,6 +7,12 @@ Trainingsplan, Tagesform und Anpassungen in einer App, synchron mit Intervals.ic
 
 <p align="center"><a href="https://alxwll.github.io/ontrack/">App öffnen</a> · gebaut für mich, offen für mehr</p>
 
+<p align="center">
+<img src="docs/screens/01-heute.png" width="31%" alt="Startseite">&nbsp;
+<img src="docs/screens/02-woche.png" width="31%" alt="Woche">&nbsp;
+<img src="docs/screens/07-form.png" width="31%" alt="Form">
+</p>
+
 <p align="center"><sub>Alle Screenshots zeigen erfundene Demo-Daten.</sub></p>
 
 ---
@@ -21,7 +27,7 @@ Der Name ist Programm: Der Schalter im Logo steht für „Läuft“ oder eben ni
 
 ### ☀️ Heute: Bereitschaft statt Bauchgefühl
 
-<p><img src="docs/screens/01-heute.png" width="280" align="right" alt="Startseite mit Bereitschaft und heutigem Training"></p>
+<p align="center"><img src="docs/screens/01-heute.png" width="48%" alt="Startseite mit Bereitschaft und heutigem Training"></p>
 
 - **Bereitschaft von 0 bis 100**, berechnet aus HRV und Ruhepuls im Vergleich zum 30-Tage-Schnitt, Schlafdauer bzw. Garmin-Schlafwert und der Trainingsform
 - **Gründe als Chips**, z. B. „HRV −27 %“ oder „4,8 h Schlaf“, und ein klarer Satz im Coaching-Ton
@@ -29,22 +35,18 @@ Der Name ist Programm: Der Schalter im Logo steht für „Läuft“ oder eben ni
 - Ist die Bereitschaft niedrig und eine harte Einheit steht an, schlägt die App die **leichte Variante** vor
 - Das heutige Training mit Profilgrafik, Quelle (eigener Plan oder Coach) und „Heute nicht fit“
 
-<br clear="right">
-
 ### 🗓️ Woche: verschieben wie im Kalender
 
-<p><img src="docs/screens/02-woche.png" width="280" align="right" alt="Wochenansicht mit Einheiten"></p>
+<p align="center"><img src="docs/screens/02-woche.png" width="48%" alt="Wochenansicht mit Einheiten"></p>
 
 - **Lange drücken und ziehen** (mit Vibration) oder antippen und einen Tag wählen, auch über mehrere Wochen
 - **Ampel beim Verschieben**: grün passt, gelb mit Hinweis, rot kollidiert mit einer harten Einheit
 - **Ausgleich**: Fällt Belastung weg, wandert ein Teil als lockerer Umfang in den nächsten passenden Lauf, gedeckelt auf +15 %
 - Erledigte Läufe mit Kilometern und Pace, Wochenbelastung als Balken
 
-<br clear="right">
-
 ### 🔍 Details und Anpassen mit Vorschau
 
-<p><img src="docs/screens/03-detail.png" width="230" alt="Workout-Detail mit Profil und Ablauf"> <img src="docs/screens/04-vorschau-leichter.png" width="230" alt="Vorschau: Intervalle werden zum lockeren Dauerlauf"></p>
+<p align="center"><img src="docs/screens/03-detail.png" width="48%" alt="Workout-Detail mit Profil und Ablauf">&nbsp;<img src="docs/screens/04-vorschau-leichter.png" width="48%" alt="Vorschau: Intervalle werden zum lockeren Dauerlauf"></p>
 
 - **Profilgrafik und Ablauf** aus den echten Workout-Schritten, Pace-Bereiche aus der eigenen Schwellenpace
 - **Leichter, Kürzer, Schwerer, Länger**: Jede Änderung zeigt erst eine **Vorschau** (vorher/nachher, Dauer, Belastung, Pace) und wird erst nach „Übernehmen“ aktiv
@@ -54,7 +56,7 @@ Der Name ist Programm: Der Schalter im Logo steht für „Läuft“ oder eben ni
 
 ### ⚡ Train now und Workout-Bibliothek
 
-<p><img src="docs/screens/05-train-now.png" width="230" alt="Train now mit Vorschlag"> <img src="docs/screens/06-bibliothek.png" width="230" alt="Workout-Bibliothek, Kategorie Schwelle"></p>
+<p align="center"><img src="docs/screens/05-train-now.png" width="48%" alt="Train now mit Vorschlag">&nbsp;<img src="docs/screens/06-bibliothek.png" width="48%" alt="Workout-Bibliothek, Kategorie Schwelle"></p>
 
 - **Train now**: Dauer wählen, die App schlägt anhand von Bereitschaft und letzten Einheiten die passende Art vor, und das Workout geht direkt auf die Uhr
 - **Bibliothek mit 37 Workouts** in neun Kategorien: Erholung, Grundlage, Tempo, Schwelle, Berg, VO2max, Speed, Wettkampf und Tests
@@ -62,7 +64,7 @@ Der Name ist Programm: Der Schalter im Logo steht für „Läuft“ oder eben ni
 
 ### 📈 Form und Laufaufbau
 
-<p><img src="docs/screens/07-form.png" width="230" alt="Formseite mit Laufaufbau"> <img src="docs/screens/08-form-verlauf.png" width="230" alt="Form- und Fitnessverlauf"></p>
+<p align="center"><img src="docs/screens/07-form.png" width="48%" alt="Formseite mit Laufaufbau">&nbsp;<img src="docs/screens/08-form-verlauf.png" width="48%" alt="Form- und Fitnessverlauf"></p>
 
 - **Trainingsform** (Fitness minus Ermüdung) in fünf Zonen von „Sehr erholt“ bis „Hohe Belastung“, mit Erklärung in Klartext
 - **Laufaufbau**: Kilometer der letzten 7 Tage als Kurve, ein grünes **Soll-Band** aus dem eigenen Schnitt und die geplanten Kilometer gepunktet. Oben steht die Veränderung zu den vier Wochen davor in Prozent.
@@ -70,7 +72,7 @@ Der Name ist Programm: Der Schalter im Logo steht für „Läuft“ oder eben ni
 
 ### 🎯 Plan erstellen
 
-<p><img src="docs/screens/09-ziel.png" width="230" alt="Ziel festlegen"> <img src="docs/screens/10-planvorschau.png" width="230" alt="Planvorschau mit Warnhinweis"></p>
+<p align="center"><img src="docs/screens/09-ziel.png" width="48%" alt="Ziel festlegen">&nbsp;<img src="docs/screens/10-planvorschau.png" width="48%" alt="Planvorschau mit Warnhinweis"></p>
 
 - Ziel wählen: **5 km, 10 km, Halbmarathon oder Marathon**, Renndatum und optional eine Zielzeit
 - **2 bis 6 Lauftage**, langer Lauf an jedem Wochentag. Die übrigen Einheiten verteilt der Planer so, dass harte Tage nie direkt aufeinander folgen.
