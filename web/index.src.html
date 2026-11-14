@@ -574,7 +574,7 @@ function render(){
   const V = { woche:viewWeek, detail:()=>viewDetail(id), form:viewForm, workouts:viewWorkouts, gen:viewGenerated, bib:()=>viewLibrary(id), ziel:viewGoal, planvorschau:viewPlanPreview };
   root.innerHTML = `<main class="app">${(V[r]||viewToday)()}</main>`;
 }
-addEventListener('hashchange', ()=>{ window.scrollTo(0,0); render(); });
+addEventListener('hashchange', ()=>{ closeSheet(); window.scrollTo(0,0); render(); });
 function loginView(msg){
   return `<main class="app" style="justify-content:center;min-height:90vh">
     <div class="logo" style="font-size:32px;justify-content:center"><span>ON</span><span class="tog off" style="width:52px;height:30px;padding:4px"><i style="width:22px;height:22px"></i></span><span>TRACK</span></div>

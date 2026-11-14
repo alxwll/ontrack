@@ -675,7 +675,7 @@ function swapSheet(cat){
   if (!GEN) return;
   cat = cat || GEN.t.cat;
   let h = `<h2>Training tauschen</h2><p class="small muted">${GEN.mode==='tn' ? `Alle auf ${GEN.minutes || TN.minutes} min angepasst.` : 'In derselben Stufe.'}</p>`;
-  h += `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin:0 -4px">${CATS.map(c => `<button class="chip" data-act="swapcat" data-v="${c.key}" style="flex:none;${c.key===cat?`background:${c.col};color:var(--bg)`:'color:var(--lilac)'}">${c.name}</button>`).join('')}</div>`;
+  h += `<div class="catrow" style="display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px">${CATS.map(c => `<button class="chip" data-act="swapcat" data-v="${c.key}" style="flex:none;${c.key===cat?`background:${c.col};color:var(--bg)`:'color:var(--lilac)'}">${c.name}</button>`).join('')}</div>`;
   h += `<div class="list">`;
   for (const t of LIB.filter(x => x.cat === cat)){
     const c = swapCandidate(t), fl = flatSteps(c.steps), cur = t.id === GEN.t.id;
@@ -683,7 +683,7 @@ function swapSheet(cat){
       <span class="row"><span class="n" style="font-weight:700">${esc(t.name)}</span><span class="small muted">${cur?'aktuell · ':''}${mins(durOf(fl))} min · ${loadOf(fl)}</span></span>
       <span style="display:block;background:var(--bg);border-radius:10px;padding:6px">${profileSVG(fl,40)}</span></button>`;
   }
-  openSheet(h + `</div>`);
+  openCatSheet(h + `</div>`);
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -1037,7 +1037,7 @@ function planSwapSheet(id, cat){
   const curCat = ev.swapped ? LIB.find(t=>t.id===ev.swapped).cat : (CATS.find(c => c.name === ev.cat.name) || CATS[1]).key;
   cat = cat || curCat;
   let h = `<h2>Training tauschen</h2><p class="small muted">Alle auf ${mins(ev.baseDur)} min angepasst · ${nice(ev.date)}</p>`;
-  h += `<div style="display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px">${CATS.map(c => `<button class="chip" data-act="pswapcat" data-id="${id}" data-v="${c.key}" style="flex:none;${c.key===cat?`background:${c.col};color:var(--bg)`:'color:var(--lilac)'}">${c.name}</button>`).join('')}</div>`;
+  h += `<div class="catrow" style="display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px">${CATS.map(c => `<button class="chip" data-act="pswapcat" data-id="${id}" data-v="${c.key}" style="flex:none;${c.key===cat?`background:${c.col};color:var(--bg)`:'color:var(--lilac)'}">${c.name}</button>`).join('')}</div>`;
   h += `<div class="list">`;
   for (const t of LIB.filter(x => x.cat === cat)){
     const cand = tryChange(id, { swap:{ tpl:t.id } });
@@ -1046,7 +1046,7 @@ function planSwapSheet(id, cat){
       <span class="row"><span class="n" style="font-weight:700">${esc(t.name)}</span><span class="small muted">${cur?'aktuell · ':''}${mins(cand.dur)} min · ${cand.load}</span></span>
       <span style="display:block;background:var(--bg);border-radius:10px;padding:6px">${profileSVG(cand.steps,40)}</span></button>`;
   }
-  openSheet(h + `</div>`);
+  openCatSheet(h + `</div>`);
 }
 function applyChange(id, change){
   const before = compTargets();
@@ -1077,3 +1077,14 @@ document.addEventListener('click', e => {
     if (!b.dataset.confirmed){ previewSheet(id, { variant:null, swap:null }, 'Original wiederherstellen'); return; }
   }
 });
+
+// Kategorie-Reihe behält ihre Scroll-Position, wenn man eine Kategorie antippt
+function openCatSheet(html){
+  const row = document.querySelector('.sheet .catrow');
+  const keep = row ? row.scrollLeft : null;
+  openSheet(html);
+  const nr = document.querySelector('.sheet .catrow');
+  if (!nr) return;
+  if (keep !== null) nr.scrollLeft = keep;
+  else { const act = [...nr.children].find(c => c.style.background && !c.style.background.includes('transparent')); if (act) nr.scrollLeft = Math.max(0, act.offsetLeft - 40); }
+}
