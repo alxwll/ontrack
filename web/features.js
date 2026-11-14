@@ -44,12 +44,10 @@ const CHECK = [
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 function readiness(){
   const f = formInfo();
-  // Nachtwerte: heute, sonst der Vortag (Garmin/Intervals legen die letzte Nacht oft auf den Vortag;
-  // ein Ruhepuls ohne Nachtdaten ist meist nur ein vorläufiger Tageswert)
-  const night = x => x && (x.hrv || x.sleepSecs);
-  const today = SNAP.wellness.find(x => x.id === TODAY), yest = SNAP.wellness.find(x => x.id === addDays(TODAY, -1));
-  const t = night(today) ? today : night(yest) ? yest : {};
-  const prior = SNAP.wellness.filter(x => x.id < t.id && x.id >= addDays(TODAY, -31));
+  // Nur echte Nachtwerte von heute: Ohne Schlaf/HRV ist der Ruhepuls meist nur ein vorläufiger Tageswert (Uhr noch nicht synchronisiert)
+  const today = SNAP.wellness.find(x => x.id === TODAY);
+  const t = today && (today.hrv || today.sleepSecs) ? today : {};
+  const prior = SNAP.wellness.filter(x => x.id < TODAY && x.id >= addDays(TODAY, -30));
   const base = k => { const v = prior.map(x => x[k]).filter(Boolean); return v.length >= 5 ? v.reduce((a,b)=>a+b,0) / v.length : null; };
   let sc = 70; const why = [];
   const hb = base('hrv');
@@ -75,7 +73,10 @@ function readiness(){
   const ci = (ST.checkin || {})[TODAY];
   if (ci) CHECK.forEach(c => { if (ci[c.k]){ sc -= c.pen; why.push({ t:c.l, neg:true }); } });
   sc = clampN(Math.round(sc), 0, 100);
-  return { score:sc, zone:RDZ.find(z => sc >= z.min), why, hasData: !!(t.hrv || t.restingHR || t.sleepSecs), ci, f };
+  const hasData = !!(t.hrv || t.sleepSecs);
+  // Ohne Nachtwerte und ohne Check-in keine Zahl vortäuschen
+  if (!hasData && !ci) return { score:null, zone:{ key:'none', name:'noch offen', col:'var(--lilac)' }, why, hasData, ci, f };
+  return { score:sc, zone:RDZ.find(z => sc >= z.min), why, hasData, ci, f };
 }
 function readySentence(r, todays){
   const ev = todays.find(e => statusOf(e).s !== 'done');
@@ -94,13 +95,13 @@ function readinessSection(todays){
   const showEase = ev && (r.zone.key === 'low' || r.zone.key === 'rest');
   const pill = (t, c) => `<span class="small" style="padding:4px 10px;border-radius:99px;background:var(--bg);color:${c};font-weight:700">${esc(t)}</span>`;
   let h = `<section class="note" style="display:flex;flex-direction:column;gap:10px" aria-label="Bereitschaft heute">
-    <div class="row"><span style="font-weight:700;color:var(--text)">Heute: <span style="color:${r.zone.col}">${r.zone.name}</span></span><span style="font-family:var(--display);font-weight:900;font-size:24px;color:${r.zone.col}">${r.score}</span></div>
-    <div role="img" aria-label="Bereitschaft ${r.score} von 100" style="position:relative;height:30px;border-radius:99px;background:var(--bg)">
+    <div class="row"><span style="font-weight:700;color:var(--text)">Heute: <span style="color:${r.zone.col}">${r.zone.name}</span></span><span style="font-family:var(--display);font-weight:900;font-size:24px;color:${r.zone.col}">${r.score ?? '–'}</span></div>
+    ${r.score == null ? '' : `<div role="img" aria-label="Bereitschaft ${r.score} von 100" style="position:relative;height:30px;border-radius:99px;background:var(--bg)">
       <div style="position:absolute;left:4px;top:4px;bottom:4px;width:calc((100% - 8px) * ${(r.score/100).toFixed(3)} + 11px);min-width:22px;border-radius:99px;background:${r.zone.col}"></div>
       <span style="position:absolute;top:4px;left:calc(4px + (100% - 30px) * ${(r.score/100).toFixed(3)});width:22px;height:22px;border-radius:99px;background:#F1EAFF;box-shadow:0 0 0 3px var(--bg)"></span></div>
-    <div class="row small muted" style="margin-top:-6px"><span>platt</span><span>startklar</span></div>`;
+    <div class="row small muted" style="margin-top:-6px"><span>platt</span><span>startklar</span></div>`}`;
   if (r.why.length) h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${r.why.map(w => pill(w.t, w.neg ? '#FF8A1F' : 'var(--lime)')).join('')}</div>`;
-  h += `<p style="color:var(--text);font-size:15px;line-height:1.45">${esc(readySentence(r, todays))}${r.hasData ? '' : ' <span class="muted">Von deiner Uhr sind heute noch keine Schlaf- und HRV-Werte da.</span>'}</p>`;
+  h += `<p style="color:var(--text);font-size:15px;line-height:1.45">${r.score == null ? '' : esc(readySentence(r, todays))}${r.hasData ? '' : '<span class="muted">Von deiner Uhr sind noch keine Werte der letzten Nacht da. Synchronisiere sie in Garmin Connect (Bluetooth an) und lade die App neu.</span>'}</p>`;
   if (showEase) h += `<button class="btn lime" data-act="vprev" data-v="leichter" data-id="${ev.id}">Heutige Einheit leichter machen</button>`;
   // Check-in
   const ci = r.ci;
@@ -401,8 +402,9 @@ function readinessPick(){
   const rh = recentHard();
   const todayPlan = plan().find(e => e.date === TODAY && statusOf(e).s !== 'done');
   const r = readiness(), neg = r.why.filter(w => w.neg).map(w => w.t).join(', ');
-  if (r.zone.key === 'rest') return { cat:'erholung', why:`${neg ? neg + ': ' : ''}Dein Körper braucht heute Ruhe. Wenn du läufst, dann ganz locker.` };
-  if (r.zone.key === 'low') return { cat:'grundlage', why:`${neg ? neg + ': ' : ''}Kein Tag für Intervalle. Ein lockerer Lauf bringt dich heute weiter.` };
+  if (r.score == null) {}
+  else if (r.zone.key === 'rest') return { cat:'erholung', why:`${neg ? neg + ': ' : ''}Dein Körper braucht heute Ruhe. Wenn du läufst, dann ganz locker.` };
+  else if (r.zone.key === 'low') return { cat:'grundlage', why:`${neg ? neg + ': ' : ''}Kein Tag für Intervalle. Ein lockerer Lauf bringt dich heute weiter.` };
   if (f.zone.key === 'high' || (f.rhr && f.rhrAvg && f.rhr.day===TODAY && f.rhr.v >= f.rhrAvg + 4)) return { cat:'erholung', why:'Du bist gerade stark belastet. Heute bringt dich ganz lockeres Laufen am meisten weiter.' };
   if (rh) return { cat:'grundlage', why:`Der ${rh.name} von ${rh.when} wirkt noch nach. Locker sammeln ist heute das Richtige.` };
   if (f.zone.key === 'opt') return { cat:'grundlage', why:'Du bist im Aufbau. Ein lockerer Lauf festigt das, ohne dich zu überladen.' };
