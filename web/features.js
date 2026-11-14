@@ -909,63 +909,80 @@ function pushCreate(gen, day){
 }
 
 
-/* ---------- Laufaufbau: Laufbelastung der letzten 7 Tage mit Soll-Zone ---------- */
-// Nur Läufe. Soll-Zone aus deinem Laufniveau der letzten 4 Wochen (0,8- bis 1,3-fach),
-// nach vorn aus den geplanten Läufen (±15 %). Gestrichelt rot: Sicherheitsgrenze.
-function runLoadOn(day){ return SNAP.activities.filter(a => isRun(a.type) && dateOf(a.start_date_local) === day).reduce((x,a)=>x+(a.icu_training_load||0),0); }
-function plannedRunOn(day){ return plan().filter(e => e.date === day && isRun(e.type) && statusOf(e).s !== 'done').reduce((x,e)=>x+e.load,0); }
+/* ---------- Laufaufbau: Kilometer der letzten 7 Tage im Soll-Band (nur Läufe) ---------- */
+// Soll-Band: 0,8- bis 1,3-fache deines Wochenschnitts der letzten 4 Wochen. Nach vorn mit den geplanten Läufen.
+function runKmOn(day){ return SNAP.activities.filter(a => isRun(a.type) && dateOf(a.start_date_local) === day).reduce((x,a)=>x+(a.distance||0)/1000,0); }
+function stepsKm(steps){ return steps.reduce((x,s)=>x + (s.duration||0) * THR * (s.pace ? stepPct(s) : 75) / 100 / 1000, 0); }
+function plannedKmOn(day){ return plan().filter(e => e.date === day && isRun(e.type) && statusOf(e).s !== 'done').reduce((x,e)=>x + (e.steps.length ? stepsKm(e.steps) : (e.raw.distance||0)/1000), 0); }
 function runSeries(){
   const days = RANGES.find(r => r[0] === FR.key)[2];
   const ahead = 14;
   const from = addDays(TODAY, -days + 1), to = addDays(TODAY, ahead);
   const daily = {};
-  for (let d = addDays(from, -28); d <= to; d = addDays(d, 1)) daily[d] = d <= TODAY ? runLoadOn(d) + (d === TODAY ? plannedRunOn(d) : 0) : plannedRunOn(d);
+  for (let d = addDays(from, -28); d <= to; d = addDays(d, 1)) daily[d] = d < TODAY ? runKmOn(d) : runKmOn(d) + plannedKmOn(d);
   const sum = (d, n) => { let x = 0; for (let i = 0; i < n; i++) x += daily[addDays(d, -i)] || 0; return x; };
   const out = [];
   for (let d = from; d <= to; d = addDays(d, 1)){
-    const acute = sum(d, 7), chronic = sum(d, 28) / 4;
-    const future = d > TODAY;
-    const lo = future ? acute * 0.85 : chronic * 0.8;
-    const hi = future ? acute * 1.15 : chronic * 1.3;
-    out.push({ d, acute, chronic, lo, hi, safe: chronic * 1.3, future });
+    const km = FR.key === '1y' ? sum(d, 14) / 2 : sum(d, 7), chronic = sum(d, 28) / 4; // 1 Jahr: über 2 Wochen gemittelt, ruhiger
+    out.push({ d, km, chronic, lo: chronic * 0.8, hi: chronic * 1.3, future: d > TODAY });
   }
-  // Bei längeren Zeiträumen ausdünnen, damit die Linie ruhig bleibt (heute bleibt immer drin)
-  const step = FR.key === '1y' ? 7 : FR.key === '3m' ? 3 : 1;
-  if (step === 1) return out;
+  const step = FR.key === '1y' ? 7 : FR.key === '3m' ? 3 : 2;
   const iT = out.findIndex(p => p.d === TODAY);
-  return out.filter((p, i) => i === iT || i === out.length - 1 || ((iT - i) % step === 0 && i < iT) || (i > iT && (i - iT) % step === 0));
+  return out.filter((p, i) => i === iT || i === 0 || i === out.length - 1 || Math.abs(i - iT) % step === 0);
 }
+// Weiche Kurve durch Punkte (Catmull-Rom als Bézier)
+function smoothPath(pts){
+  if (pts.length < 2) return '';
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++){
+    const p0 = pts[i-1] || pts[i], p1 = pts[i], p2 = pts[i+1], p3 = pts[i+2] || p2;
+    const c1 = [p1[0] + (p2[0]-p0[0])/6, p1[1] + (p2[1]-p0[1])/6], c2 = [p2[0] - (p3[0]-p1[0])/6, p2[1] - (p3[1]-p1[1])/6];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)}, ${c2[0].toFixed(1)} ${c2[1].toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+function kmTrend(){
+  let a = 0, b = 0;
+  for (let i = 0; i < 28; i++){ a += runKmOn(addDays(TODAY, -i)); b += runKmOn(addDays(TODAY, -28 - i)); }
+  return { now: a, before: b, pct: b > 0 ? Math.round((a - b) / b * 100) : null };
+}
+const kmStr = v => (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
 function runBuildSection(){
-  const S = runSeries(); if (!S.length) return '';
-  const W = 350, H = 140;
-  const max = Math.max(10, ...S.map(p => Math.max(p.acute, p.hi, p.future ? p.safe : 0))) * 1.1;
-  const X = i => i / (S.length - 1) * W, Y = v => H - v / max * H;
+  const S = runSeries(); if (S.length < 2) return '';
+  const W = 350, H = 130;
+  const max = Math.max(5, ...S.map(p => Math.max(p.km, p.hi))) * 1.12;
+  const X = i => i / (S.length - 1) * W, Y = v => H - 6 - v / max * (H - 12);
   const iT = S.findIndex(p => p.d === TODAY);
-  const past = S.slice(0, iT + 1), fut = S.slice(iT);
-  const zone = `<polygon points="${S.map((p,i)=>`${X(i).toFixed(1)},${Y(p.hi).toFixed(1)}`).join(' ')} ${S.map((p,i)=>`${X(i).toFixed(1)},${Y(p.lo).toFixed(1)}`).reverse().join(' ')}" fill="#5FD17A" fill-opacity="0.55"></polygon>`;
-  const pl = (arr, off, extra) => `<polyline fill="none" stroke="#F1EAFF" stroke-width="2.5" vector-effect="non-scaling-stroke" ${extra||''} points="${arr.map((p,i)=>`${X(i+off).toFixed(1)},${Y(p.acute).toFixed(1)}`).join(' ')}"></polyline>`;
-  const safe = `<polyline fill="none" stroke="#FF6B6B" stroke-width="1.5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke" points="${fut.map((p,i)=>`${X(i+iT).toFixed(1)},${Y(p.safe).toFixed(1)}`).join(' ')}"></polyline>`;
-  const today = `<line x1="${X(iT)}" x2="${X(iT)}" y1="0" y2="${H}" stroke="#C9B6FF" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"></line>`;
+  const hiPts = S.map((p,i) => [X(i), Y(p.hi)]), loPts = S.map((p,i) => [X(i), Y(p.lo)]);
+  const band = `<path d="${smoothPath(hiPts)} L${X(S.length-1)} ${Y(S[S.length-1].lo)} ${smoothPath(loPts.slice().reverse()).replace(/^M/,'L')} Z" fill="#5ED68A" fill-opacity="0.8"></path>`;
+  const past = S.slice(0, iT + 1).map((p,i) => [X(i), Y(p.km)]);
+  const fut = S.slice(iT).map((p,i) => [X(i + iT), Y(p.km)]);
+  const line = `<path d="${smoothPath(past)}" fill="none" stroke="#F1EAFF" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>
+    <path d="${smoothPath(fut)}" fill="none" stroke="#F1EAFF" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 7" vector-effect="non-scaling-stroke"></path>`;
   const t = S[iT];
+  const tr = kmTrend();
+  const head = tr.pct == null ? `<span style="font-family:var(--display);font-weight:900;font-size:40px;line-height:1;color:var(--lime)">${kmStr(tr.now)} km</span><span class="small muted">in den letzten 4 Wochen</span>`
+    : `<span style="font-family:var(--display);font-weight:900;font-size:40px;line-height:1;color:${tr.pct >= 0 ? 'var(--lime)' : 'var(--lilac)'}">${tr.pct > 0 ? '+' : ''}${tr.pct} %</span><span class="small muted">${kmStr(tr.now)} km in 4 Wochen · davor ${kmStr(tr.before)} km</span>`;
   let msg;
-  if (t.acute < t.lo) msg = 'Gerade unter deinem gewohnten Laufniveau. Ein lockerer Lauf mehr diese Woche bringt dich zurück in den grünen Bereich.';
-  else if (t.acute > t.hi) msg = 'Mehr Laufen, als dein Körper gerade gewohnt ist. Die nächsten Tage lieber ruhig angehen.';
-  else msg = 'Du liegst im grünen Bereich: Dein Laufen wächst gesund.';
-  const over = fut.find(p => p.acute > p.safe * 1.05 && p.d > TODAY);
-  if (over) msg += ` Achtung: Um den ${shortD(over.d)} zieht der Plan schneller an, als dein Laufen mitwächst.`;
-  // Achsenbeschriftung: Start, Heute, Ende
-  const lab = `<div style="position:relative;height:16px;font-size:12px;color:var(--lilac);margin-top:4px">
-    <span style="position:absolute;left:0">${FR.key==='1y'?MON[parseD(S[0].d).getUTCMonth()]:shortD(S[0].d)}</span>
-    <span style="position:absolute;left:${(iT/(S.length-1)*100).toFixed(1)}%;transform:translateX(-50%)">Heute</span>
-    ${iT/(S.length-1) < 0.85 ? `<span style="position:absolute;right:0">${shortD(S[S.length-1].d)}</span>` : ''}</div>`;
-  return `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px">
+  if (t.km < t.lo) msg = 'Gerade etwas unter deinem gewohnten Umfang. Ein lockerer Lauf mehr bringt dich zurück ins grüne Band.';
+  else if (t.km > t.hi) msg = 'Mehr Kilometer, als dein Körper gerade gewohnt ist. Die nächsten Tage lieber ruhig.';
+  else msg = tr.pct != null && tr.pct > 25 ? 'Stark: Du läufst deutlich mehr als zuvor und liegst trotzdem im grünen Band.' : 'Du liegst im grünen Band: Dein Laufen wächst gesund.';
+  const over = S.slice(iT + 1).find(p => p.km > p.hi * 1.05);
+  if (over) msg += ` Um den ${shortD(over.d)} sieht dein Plan mehr vor, als gesund mitwächst.`;
+  const tx = X(iT), ty = Y(t.km);
+  return `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">
     <h2>Laufaufbau</h2>
-    <p style="line-height:1.5;color:var(--text)">${esc(msg)}</p>
-    <div class="scrub" data-scrub="run" style="position:relative;touch-action:pan-y;cursor:crosshair"><svg width="100%" height="140" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Laufbelastung der letzten sieben Tage mit Soll-Zone" style="display:block">${zone}${today}${safe}${pl(past,0)}${pl(fut,iT,'stroke-dasharray="2 5" stroke-linecap="round"')}</svg>
-    <div class="scrubline" style="display:none;position:absolute;top:0;bottom:0;width:2px;background:var(--text);opacity:.7;pointer-events:none"></div></div>
-    ${lab}
-    <div class="legend"><span><i style="background:#F1EAFF"></i>Laufbelastung 7 Tage</span><span><i style="background:#7CE38B"></i>Soll-Zone</span><span><i style="background:#FF6B6B;height:2px"></i>Sicherheitsgrenze</span></div>
-    <p class="small" style="color:var(--soft);line-height:1.5">Nur Läufe zählen. Die <b style="color:var(--text)">Soll-Zone</b> wächst mit dir: Sie richtet sich nach deinem Laufen der letzten vier Wochen. Rechts von „Heute“ zeigt sie, was dein Plan vorsieht. Liegt die Linie in der Zone, wird dein Laufen gesund mehr.</p></section>`;
+    <div style="display:flex;flex-direction:column;gap:4px">${head}</div>
+    <div class="scrub" data-scrub="run" style="position:relative;touch-action:pan-y;cursor:crosshair">
+      <svg width="100%" height="130" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Kilometer der letzten sieben Tage im Soll-Band" style="display:block;overflow:visible">${band}${line}</svg>
+      <span aria-hidden="true" style="position:absolute;left:calc(${(tx/W*100).toFixed(2)}% - 9px);top:${(ty/H*130 - 9).toFixed(1)}px;width:18px;height:18px;border-radius:99px;background:var(--lime);box-shadow:0 0 0 4px var(--bg2)"></span>
+      <div class="scrubline" style="display:none;position:absolute;top:0;bottom:0;width:2px;background:var(--text);opacity:.7;pointer-events:none"></div></div>
+    <div style="position:relative;height:16px;font-size:12px;color:var(--lilac)">
+      <span style="position:absolute;left:0">${FR.key==='1y'?'vor 1 Jahr':FR.key==='3m'?'vor 3 Monaten':'vor 6 Wochen'}</span>
+      <span style="position:absolute;left:${(iT/(S.length-1)*100).toFixed(1)}%;transform:translateX(-50%)">Heute</span>
+      ${iT/(S.length-1) < 0.72 ? `<span style="position:absolute;right:0">+2 Wochen</span>` : ''}</div>
+    <p style="line-height:1.5">${esc(msg)}</p>
+    <p class="small" style="color:var(--soft);line-height:1.5">Linie: deine Kilometer der letzten 7 Tage, nur Läufe. Grünes Band: dein Soll, es wächst mit dir. Gepunktet: was dein Plan vorsieht.</p></section>`;
 }
 // Antippen im Laufaufbau-Diagramm
 document.addEventListener('pointerdown', e => {
@@ -981,11 +998,9 @@ function runScrub(el, clientX){
   const i = Math.round(Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (S.length - 1)), p = S[i];
   const l = el.querySelector('.scrubline'); l.style.display = 'block'; l.style.left = `calc(${(i/(S.length-1)*100).toFixed(2)}% - 1px)`;
   const tip = document.getElementById('scrubtip'); tip.style.display = 'flex';
-  const inZone = p.acute >= p.lo && p.acute <= p.hi;
-  tip.innerHTML = `<b>${p.d===TODAY?'Heute':`${WD[wd(p.d)]}, ${shortD(p.d)}`}${p.future?' (Plan)':''}</b><span>Laufbelastung <b>${Math.round(p.acute)}</b></span><span>Soll <b>${Math.round(p.lo)}–${Math.round(p.hi)}</b></span><span style="color:${inZone?'#2E8B3E':'#C0392B'};font-weight:700">${inZone?'im Soll':p.acute<p.lo?'darunter':'darüber'}</span>`;
+  const inZone = p.km >= p.lo && p.km <= p.hi;
+  tip.innerHTML = `<b>${p.d===TODAY?'Heute':`${WD[wd(p.d)]}, ${shortD(p.d)}`}${p.future?' (Plan)':''}</b><span>7 Tage <b>${kmStr(p.km)} km</b></span><span>Soll <b>${kmStr(p.lo)}–${kmStr(p.hi)} km</b></span><span style="color:${inZone?'#2E8B3E':'#C0392B'};font-weight:700">${inZone?'im Soll':p.km<p.lo?'darunter':'darüber'}</span>`;
 }
-
-
 /* ---------- Anpassen mit Vorschau, Tauschen für geplante Einheiten, Original wiederherstellen ---------- */
 function swapRow(ev){
   return `<div class="row"><span class="small muted">${ev.modified ? 'Angepasst' : esc(sourceOf(ev.raw))}</span><button class="chip" data-act="pswap" data-id="${ev.id}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4"></path><path d="M3 8h14"></path><path d="M17 20l4-4-4-4"></path><path d="M21 16H7"></path></svg>Tauschen</button></div>`;
