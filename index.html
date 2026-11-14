@@ -200,14 +200,16 @@ function stepLabel(s){
 /* Variante anwenden: leichter / schwerer / kürzer / länger */
 const VARIANTS = { leichter:'Leichter', schwerer:'Schwerer', kuerzer:'Kürzer', laenger:'Länger' };
 function applyVariant(steps, v){
-  const r30 = x => Math.max(60, Math.round(x/30)*30);
+  // Kurze Abschnitte (unter 90 s, z. B. Steigerungen) behalten ihre Dauer
+  const r30 = (x, orig) => orig < 90 ? orig : Math.max(60, Math.round(x/30)*30);
   return steps.map(s => {
     const t = Object.assign({}, s, s.pace ? { pace:Object.assign({},s.pace) } : {});
-    const p = stepPct(s), hard = p >= 90;
-    if (v==='kuerzer') t.duration = r30(s.duration * (hard ? 0.8 : 0.75));
-    if (v==='laenger') t.duration = hard ? s.duration : r30(s.duration * 1.25);
-    if (v==='leichter' && hard && t.pace){ t.pace.start-=4; t.pace.end-=4; }
-    if (v==='schwerer' && hard && t.pace){ t.pace.start+=2; t.pace.end+=2; }
+    const p = stepPct(s), hard = p >= 90, easy = !hard && p >= 75;
+    if (v==='kuerzer') t.duration = r30(s.duration * (hard ? 0.8 : 0.75), s.duration);
+    if (v==='laenger') t.duration = hard ? s.duration : r30(s.duration * 1.25, s.duration);
+    // Leichter/Schwerer wirken auf harte UND lockere Abschnitte, Traben und Erholung bleiben gleich
+    if (v==='leichter' && t.pace && (hard || easy)){ const d = hard ? 4 : 3; t.pace.start-=d; t.pace.end-=d; }
+    if (v==='schwerer' && t.pace && (hard || easy)){ const d = 2; t.pace.start+=d; t.pace.end+=d; }
     return t;
   });
 }
