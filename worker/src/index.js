@@ -60,7 +60,7 @@ export default {
             moving_time: a.moving_time, icu_training_load: a.icu_training_load, average_heartrate: a.average_heartrate,
             average_speed: a.average_speed, total_elevation_gain: a.total_elevation_gain,
           })),
-          wellness: well.map(w => ({ id: w.id, ctl: w.ctl, atl: w.atl, hrv: w.hrv, restingHR: w.restingHR, sleepSecs: w.sleepSecs })),
+          wellness: well.map(w => ({ id: w.id, ctl: w.ctl, atl: w.atl, hrv: w.hrv, restingHR: w.restingHR, sleepSecs: w.sleepSecs, sleepScore: w.sleepScore })),
           streams: {},
         };
         // Verläufe (Pace, Puls) der gekoppelten Läufe der letzten zwei Wochen

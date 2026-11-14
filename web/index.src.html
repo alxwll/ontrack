@@ -122,7 +122,7 @@ const CONFIG = { apiBase: null /*__API__*/ }; // später: URL des Cloudflare Wor
 /* ---------- Daten ---------- */
 let SNAP = JSON.parse(document.getElementById('snapshot').textContent);
 const store = (() => { try { const k='ontrack.v1'; return { get:()=>JSON.parse(localStorage.getItem(k)||'{}'), set:v=>localStorage.setItem(k,JSON.stringify(v)) }; } catch(e){ return { get:()=>({}), set:()=>{} }; } })();
-const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{}, swaps:{} }, store.get());
+const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{}, swaps:{}, checkin:{} }, store.get());
 const save = () => { try { store.set(ST); } catch(e){} };
 
 let TODAY = SNAP.today;
@@ -209,7 +209,11 @@ function applyVariant(steps, v){
     if (v==='kuerzer') t.duration = r30(s.duration * (hard ? 0.8 : 0.75), s.duration);
     if (v==='laenger') t.duration = hard ? s.duration : r30(s.duration * 1.25, s.duration);
     // Leichter/Schwerer wirken auf harte UND lockere Abschnitte, Traben und Erholung bleiben gleich
-    if (v==='leichter' && t.pace && (hard || easy)){ const d = hard ? 4 : 3; t.pace.start-=d; t.pace.end-=d; }
+    // Leichter: harte Blöcke spürbar ruhiger (−6 %) und 20 % kürzer, lockere Abschnitte etwas langsamer
+    // kurze Steigerungen fallen bei Leichter weg: werden locker gelaufen
+    if (v==='leichter' && t.pace && p >= 102 && s.duration < 90){ t.pace.start = 82; t.pace.end = 88; return t; }
+    if (v==='leichter' && t.pace && hard){ t.pace.start-=6; t.pace.end-=6; t.duration = r30(s.duration * 0.8, s.duration); }
+    if (v==='leichter' && t.pace && easy){ t.pace.start-=3; t.pace.end-=3; }
     if (v==='schwerer' && t.pace && (hard || easy)){ const d = 2; t.pace.start+=d; t.pace.end+=d; }
     return t;
   });
@@ -238,9 +242,17 @@ function buildEvent(e0){
   const sw = ST.swaps && ST.swaps[e0.id];
   const swT = sw && typeof LIB !== 'undefined' ? LIB.find(t => t.id === sw.tpl) : null;
   if (swT){ const minutes = Math.max(20, Math.round(base.reduce((a,x)=>a+(x.duration||0),0)/60) || 45); base = flatSteps(fitWorkout(swT, minutes).steps); }
-  let steps = base;
+  let steps = base, eased = null;
   const v = ST.variants[e.id];
-  if (v) steps = applyVariant(base, v);
+  // Leichter bei Sprints oder VO2max-Intervallen: nicht nur langsamer, sondern ein lockerer Dauerlauf gleicher Dauer
+  const fastSec = base.filter(s => stepPct(s) >= 102).reduce((a,x)=>a+(x.duration||0),0);
+  if (v === 'leichter' && typeof LIB !== 'undefined' && fastSec >= 180){
+    let minutes = Math.max(20, Math.round(base.reduce((a,x)=>a+(x.duration||0),0)/60) || 45);
+    const cap = estLoad(base) * 0.85;
+    steps = flatSteps(fitWorkout(LIB.find(t => t.id === 'GRU-1'), minutes).steps);
+    while (estLoad(steps) > cap && minutes > 20){ minutes -= 5; steps = flatSteps(fitWorkout(LIB.find(t => t.id === 'GRU-1'), minutes).steps); }
+    eased = 'Lockerer Dauerlauf';
+  } else if (v) steps = applyVariant(base, v);
   const extra = ST.comp[e.id] || 0; // Ausgleich in Sekunden, wird auf den längsten lockeren Abschnitt gelegt
   if (extra && steps.length){
     steps = steps.map(s=>Object.assign({},s));
@@ -252,8 +264,8 @@ function buildEvent(e0){
   const dur = steps.length ? steps.reduce((a,s)=>a+(s.duration||0),0) : (e.moving_time||0);
   const ratio = origBase.length ? estLoad(steps)/Math.max(estLoad(origBase),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
-  const cat = category(swT ? Object.assign({}, e, { name: swT.name, moving_time: base.reduce((a,x)=>a+x.duration,0) }) : e, base);
-  return { raw:e0, id:e.id, date:eventDate(e), name: swT ? swT.name : cleanName(e.name), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, modified: !!(v || swT) };
+  const cat = eased ? category(Object.assign({}, e, { name: eased }), steps) : category(swT ? Object.assign({}, e, { name: swT.name, moving_time: base.reduce((a,x)=>a+x.duration,0) }) : e, base);
+  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, modified: !!(v || swT) };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
@@ -383,7 +395,7 @@ function viewToday(){
     <p class="pill ${ds.on?'on':'off'}">${esc(ds.label)}</p>
     ${(ds.sub || streak>=2) ? `<p class="muted">${esc(ds.sub)}${ds.sub && streak>=2 ? ' · ' : ''}${streak>=2?`Seit ${streak} Tagen am Stück: Läuft.`:''}</p>` : ''}</section>`;
   h += autoNote();
-  h += dayFormSection(todays);
+  h += readinessSection(todays);
   if (!todays.length){
     h += `<section class="card"><span class="tag">Ruhetag</span><h1>Heute frei</h1><p>Erholung ist Training. ${next?`Weiter geht's ${nice(next.date)} mit <b>${esc(next.name)}</b>.`:''}</p></section>`;
   }

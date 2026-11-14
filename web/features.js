@@ -27,6 +27,100 @@ function formInfo(day = TODAY){
     sleep:last('sleepSecs'), sleepAvg:avg('sleepSecs'), ctl28: (() => { const x = w.find(q => q.id >= addDays(day,-28)); return x ? Math.round(x.ctl) : null; })(),
   };
 }
+/* ---------- Bereitschaft heute: HRV, Ruhepuls, Schlaf, Form und Morgen-Check-in ---------- */
+const RDZ = [
+  { min:75, key:'go',   name:'Startklar',       col:'#D7FF3D' },
+  { min:55, key:'ok',   name:'Solide',          col:'#FFD84D' },
+  { min:40, key:'low',  name:'Gedämpft',        col:'#FF8A1F' },
+  { min:-1, key:'rest', name:'Erholung zuerst', col:'#FF3B3B' },
+];
+const CHECK = [
+  { k:'sleep',  l:'Schlecht geschlafen', pen:12 },
+  { k:'alc',    l:'Alkohol',             pen:12 },
+  { k:'stress', l:'Stress',              pen:6 },
+  { k:'legs',   l:'Schwere Beine',       pen:8 },
+  { k:'ill',    l:'Kränklich',           pen:30 },
+];
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+function readiness(){
+  const f = formInfo();
+  const t = SNAP.wellness.find(x => x.id === TODAY) || {};
+  const prior = SNAP.wellness.filter(x => x.id < TODAY && x.id >= addDays(TODAY, -30));
+  const base = k => { const v = prior.map(x => x[k]).filter(Boolean); return v.length >= 5 ? v.reduce((a,b)=>a+b,0) / v.length : null; };
+  let sc = 70; const why = [];
+  const hb = base('hrv');
+  if (t.hrv && hb){
+    const d = t.hrv / hb - 1; sc += clampN(d * 120, -25, 10);
+    if (d <= -0.08) why.push({ t:`HRV ${Math.round(d*100)} %`, neg:true }); else if (d >= 0.08) why.push({ t:`HRV +${Math.round(d*100)} %`, neg:false });
+  }
+  const rb = base('restingHR');
+  if (t.restingHR && rb){
+    const d = Math.round(t.restingHR - rb); sc -= clampN(d * 3, -6, 15);
+    if (d >= 3) why.push({ t:`Ruhepuls +${d}`, neg:true }); else if (d <= -3) why.push({ t:`Ruhepuls ${d}`, neg:false });
+  }
+  if (t.sleepScore){
+    sc += clampN((t.sleepScore - 75) / 2.5, -12, 6);
+    if (t.sleepScore < 65) why.push({ t:`Schlafwert ${t.sleepScore}`, neg:true }); else if (t.sleepScore >= 85) why.push({ t:`Schlafwert ${t.sleepScore}`, neg:false });
+  } else if (t.sleepSecs){
+    const h = t.sleepSecs / 3600, hs = `${h.toFixed(1).replace('.',',')} h Schlaf`;
+    if (h < 6){ sc -= 12; why.push({ t:hs, neg:true }); } else if (h < 7){ sc -= 5; why.push({ t:hs, neg:true }); } else if (h >= 8){ sc += 4; why.push({ t:hs, neg:false }); }
+  }
+  if (f.tsb < -30){ sc -= 10; why.push({ t:'Hohe Trainingslast', neg:true }); }
+  else if (f.tsb < -10) sc -= 2; else if (f.tsb < 5) sc += 2; else sc += 5;
+  const ci = (ST.checkin || {})[TODAY];
+  if (ci) CHECK.forEach(c => { if (ci[c.k]){ sc -= c.pen; why.push({ t:c.l, neg:true }); } });
+  sc = clampN(Math.round(sc), 0, 100);
+  return { score:sc, zone:RDZ.find(z => sc >= z.min), why, hasData: !!(t.hrv || t.restingHR || t.sleepSecs), ci, f };
+}
+function readySentence(r, todays){
+  const ev = todays.find(e => statusOf(e).s !== 'done');
+  const hard = ev && ev.cat.hard && !ev.variant;
+  const because = '';
+  switch (r.zone.key){
+    case 'rest': return because + 'Dein Körper braucht heute Ruhe. ' + (hard ? 'Mach die leichte Variante oder lass die Einheit ausfallen.' : ev ? 'Wenn du läufst, dann kurz und ganz locker.' : 'Gut, dass heute frei ist.');
+    case 'low':  return because + 'Heute ist kein Tag für Vollgas. ' + (hard ? 'Ich würde die Einheit leichter machen.' : ev ? 'Locker laufen passt, Tempo bewusst rausnehmen.' : 'Ein ruhiger Tag tut dir gut.');
+    case 'ok':   return 'Solide Basis. ' + (hard ? 'Die Einheit geht, hör aber unterwegs auf deinen Körper.' : ev ? 'Gut für deinen Lauf heute.' : 'Ein ruhiger Tag schadet nicht.');
+    default:     return 'Du bist startklar. ' + (hard ? 'Perfekt für die harte Einheit.' : ev ? 'Genieß den Lauf.' : 'Morgen darf es wieder zur Sache gehen.');
+  }
+}
+function readinessSection(todays){
+  const r = readiness(), f = r.f;
+  const ev = todays.find(e => statusOf(e).s !== 'done' && e.cat.hard && !e.variant && !isStrength(e.type));
+  const showEase = ev && (r.zone.key === 'low' || r.zone.key === 'rest');
+  const pill = (t, c) => `<span class="small" style="padding:4px 10px;border-radius:99px;background:var(--bg);color:${c};font-weight:700">${esc(t)}</span>`;
+  let h = `<section class="note" style="display:flex;flex-direction:column;gap:10px" aria-label="Bereitschaft heute">
+    <div class="row"><span style="font-weight:700;color:var(--text)">Heute: <span style="color:${r.zone.col}">${r.zone.name}</span></span><span style="font-family:var(--display);font-weight:900;font-size:24px;color:${r.zone.col}">${r.score}</span></div>
+    <div role="img" aria-label="Bereitschaft ${r.score} von 100" style="position:relative;height:30px;border-radius:99px;background:var(--bg)">
+      <div style="position:absolute;left:4px;top:4px;bottom:4px;width:calc((100% - 8px) * ${(r.score/100).toFixed(3)} + 11px);min-width:22px;border-radius:99px;background:${r.zone.col}"></div>
+      <span style="position:absolute;top:4px;left:calc(4px + (100% - 30px) * ${(r.score/100).toFixed(3)});width:22px;height:22px;border-radius:99px;background:#F1EAFF;box-shadow:0 0 0 3px var(--bg)"></span></div>
+    <div class="row small muted" style="margin-top:-6px"><span>platt</span><span>startklar</span></div>`;
+  if (r.why.length) h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${r.why.map(w => pill(w.t, w.neg ? '#FF8A1F' : 'var(--lime)')).join('')}</div>`;
+  h += `<p style="color:var(--text);font-size:15px;line-height:1.45">${esc(readySentence(r, todays))}${r.hasData ? '' : ' <span class="muted">Von deiner Uhr sind heute noch keine Schlaf- und HRV-Werte da.</span>'}</p>`;
+  if (showEase) h += `<button class="btn lime" data-act="vprev" data-v="leichter" data-id="${ev.id}">Heutige Einheit leichter machen</button>`;
+  // Check-in
+  const ci = r.ci;
+  if (!ci || ST.ciOpen){
+    h += `<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px"><span class="small" style="font-weight:700;color:var(--text)">Wie geht's dir heute?</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${CHECK.map(c => `<button class="chip" data-act="ci" data-v="${c.k}" aria-pressed="${!!(ci && ci[c.k])}" style="${ci && ci[c.k] ? 'background:#FF8A1F;color:var(--bg)' : 'color:var(--lilac)'}">${c.l}</button>`).join('')}
+      <button class="chip" data-act="ciok" style="background:var(--lime);color:var(--bg)">${ci ? 'Fertig' : 'Alles gut'}</button></div></div>`;
+  } else {
+    const on = CHECK.filter(c => ci[c.k]).map(c => c.l);
+    h += `<div class="row small" style="border-top:1px solid var(--line);padding-top:10px"><span class="muted">Check-in: ${on.length ? esc(on.join(', ')) : 'alles gut'}</span><button class="chip" data-act="ciedit" style="color:var(--lilac)">Ändern</button></div>`;
+  }
+  h += `<a href="#form" class="row small" style="text-decoration:none;color:var(--lilac)"><span>Trainingsform: <b style="color:${f.zone.col}">${f.zone.name}</b> · ${f.tsb>0?'+':''}${f.tsb}</span><b>Mehr ›</b></a></section>`;
+  return h;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const { act, v } = b.dataset;
+  if (!['ci','ciok','ciedit'].includes(act)) return;
+  ST.checkin = ST.checkin || {};
+  for (const d of Object.keys(ST.checkin)) if (d < addDays(TODAY, -14)) delete ST.checkin[d];
+  if (act === 'ci'){ const c = ST.checkin[TODAY] = ST.checkin[TODAY] || {}; c[v] = !c[v]; ST.ciOpen = true; }
+  if (act === 'ciok'){ ST.checkin[TODAY] = ST.checkin[TODAY] || {}; ST.ciOpen = false; }
+  if (act === 'ciedit') ST.ciOpen = true;
+  save(); render();
+});
 // Harte Einheit in den letzten zwei Tagen?
 function recentHard(){
   for (const d of [addDays(TODAY,-1), addDays(TODAY,-2)]){
@@ -301,6 +395,9 @@ function readinessPick(){
   const f = formInfo();
   const rh = recentHard();
   const todayPlan = plan().find(e => e.date === TODAY && statusOf(e).s !== 'done');
+  const r = readiness(), neg = r.why.filter(w => w.neg).map(w => w.t).join(', ');
+  if (r.zone.key === 'rest') return { cat:'erholung', why:`${neg ? neg + ': ' : ''}Dein Körper braucht heute Ruhe. Wenn du läufst, dann ganz locker.` };
+  if (r.zone.key === 'low') return { cat:'grundlage', why:`${neg ? neg + ': ' : ''}Kein Tag für Intervalle. Ein lockerer Lauf bringt dich heute weiter.` };
   if (f.zone.key === 'high' || (f.rhr && f.rhrAvg && f.rhr.day===TODAY && f.rhr.v >= f.rhrAvg + 4)) return { cat:'erholung', why:'Du bist gerade stark belastet. Heute bringt dich ganz lockeres Laufen am meisten weiter.' };
   if (rh) return { cat:'grundlage', why:`Der ${rh.name} von ${rh.when} wirkt noch nach. Locker sammeln ist heute das Richtige.` };
   if (f.zone.key === 'opt') return { cat:'grundlage', why:'Du bist im Aufbau. Ein lockerer Lauf festigt das, ohne dich zu überladen.' };
@@ -934,8 +1031,8 @@ function pushShape(id){
   const ev = buildEvent(raw);
   const base = cleanName(ST.orig[id].name).replace(/^On\.Track · /,'');
   const sw = ST.swaps && ST.swaps[id] && LIB.find(t => t.id === ST.swaps[id].tpl);
-  const tag = ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
-  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${sw ? sw.name : base}${tag}`, description: stepsToText(ev.steps) + `\n\n${OWN_MARK}` }));
+  const tag = ev.eased ? ` (statt ${base})` : ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
+  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${ev.eased || (sw ? sw.name : base)}${tag}`, description: stepsToText(ev.steps) + `\n\n${OWN_MARK}` }));
 }
 function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
 function pushCreate(gen, day){
@@ -1046,7 +1143,7 @@ function variantGrid(ev){
   return `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="vprev" data-v="${k}" data-id="${ev.id}">${l}${ev.variant===k?' ✓':''}</button>`).join('')}</div>`;
 }
 function modBanner(ev){
-  const what = ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : `angepasst: ${VARIANTS[ev.variant]}`;
+  const what = ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : ev.eased ? `leichter: lockerer Dauerlauf statt ${esc(ev.origName)}` : `angepasst: ${VARIANTS[ev.variant]}`;
   return `<div class="note" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Diese Einheit ist <b>${what}</b>.</span><button class="chip" data-act="restore" data-id="${ev.id}" style="flex:none">Zurücksetzen</button></div>`;
 }
 function corePace(steps){
