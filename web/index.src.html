@@ -146,6 +146,10 @@ const mins = sec => Math.round(sec/60);
 const paceStr = ms => { if(!ms) return '–'; const s=Math.round(1000/ms); return `${Math.floor(s/60)}:${d2(s%60)}`; };
 const pctToPace = p => paceStr(THR*p/100);
 const cleanName = n => (n||'').replace(/^IntervalCoach\s*-\s*/,'');
+// Eigene Trainings: von On. Track angelegt oder verändert. Nur die fasst die Automatik an.
+const OWN_MARK = '[on.track]';
+const isOwn = raw => !!raw && (/^On\.Track/.test(raw.name||'') || (raw.description||'').includes(OWN_MARK) || !!(ST.orig && ST.orig[raw.id]));
+const sourceOf = raw => isOwn(raw) ? 'On. Track' : /^IntervalCoach/.test(raw.name||'') ? 'IntervalCoach' : 'Extern';
 const isRun = t => /Run/.test(t||'');
 const isStrength = t => /Weight|Strength/.test(t||'');
 
@@ -337,7 +341,7 @@ function compensate(ev){
   // Wenn eine Einheit reduziert wurde: Defizit auf den nächsten lockeren Lauf dieser Woche legen, gedeckelt auf +15 %
   const deficit = ev.baseLoad - ev.load;
   const wk = monday(ev.date), end = addDays(wk,6);
-  const cand = plan().filter(e => e.id!==ev.id && e.date>ev.date && e.date<=end && e.date>=TODAY && isRun(e.type) && !e.cat.hard && !ST.variants[e.id]);
+  const cand = plan().filter(e => e.id!==ev.id && e.date>ev.date && e.date<=end && e.date>=TODAY && isRun(e.type) && !e.cat.hard && !ST.variants[e.id] && isOwn(e.raw));
   Object.keys(ST.comp).forEach(k=>{ if (ST.comp[k] && ST.comp[k+'_from']===ev.id){ delete ST.comp[k]; delete ST.comp[k+'_from']; } });
   if (deficit <= 2 || !cand.length) return null;
   const tgt = cand[0];
@@ -543,7 +547,9 @@ document.addEventListener('click', e=>{
     ST.unfit[TODAY]=v;
     if (v==='zeit') setVariant(id,'kuerzer');
     if (v==='muede') setVariant(id,'leichter');
-    if (v==='krank'){ ST.removed[id]=true; const hard = plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard); hard.forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); pushDelete(id); syncShapes(hard.map(x=>String(x.id))); }
+    if (v==='krank'){ ST.removed[id]=true; const all = plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard); const hard = all.filter(x=>isOwn(x.raw)), foreign = all.filter(x=>!isOwn(x.raw)); hard.forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render();
+      toast(foreign.length ? `Heute Pause. ${foreign.map(x=>`${WD[wd(x.date)]} ${x.name}`).join(', ')} ist von ${sourceOf(foreign[0].raw)} – tipp es an, wenn du es entschärfen willst.` : 'Heute Pause. Die nächsten harten Einheiten sind entschärft.');
+      pushDelete(id); syncShapes(hard.map(x=>String(x.id))); }
   }
   if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
   if (act==='noop') toast('Liegt schon auf deiner Uhr.');

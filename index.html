@@ -146,6 +146,10 @@ const mins = sec => Math.round(sec/60);
 const paceStr = ms => { if(!ms) return '–'; const s=Math.round(1000/ms); return `${Math.floor(s/60)}:${d2(s%60)}`; };
 const pctToPace = p => paceStr(THR*p/100);
 const cleanName = n => (n||'').replace(/^IntervalCoach\s*-\s*/,'');
+// Eigene Trainings: von On. Track angelegt oder verändert. Nur die fasst die Automatik an.
+const OWN_MARK = '[on.track]';
+const isOwn = raw => !!raw && (/^On\.Track/.test(raw.name||'') || (raw.description||'').includes(OWN_MARK) || !!(ST.orig && ST.orig[raw.id]));
+const sourceOf = raw => isOwn(raw) ? 'On. Track' : /^IntervalCoach/.test(raw.name||'') ? 'IntervalCoach' : 'Extern';
 const isRun = t => /Run/.test(t||'');
 const isStrength = t => /Weight|Strength/.test(t||'');
 
@@ -337,7 +341,7 @@ function compensate(ev){
   // Wenn eine Einheit reduziert wurde: Defizit auf den nächsten lockeren Lauf dieser Woche legen, gedeckelt auf +15 %
   const deficit = ev.baseLoad - ev.load;
   const wk = monday(ev.date), end = addDays(wk,6);
-  const cand = plan().filter(e => e.id!==ev.id && e.date>ev.date && e.date<=end && e.date>=TODAY && isRun(e.type) && !e.cat.hard && !ST.variants[e.id]);
+  const cand = plan().filter(e => e.id!==ev.id && e.date>ev.date && e.date<=end && e.date>=TODAY && isRun(e.type) && !e.cat.hard && !ST.variants[e.id] && isOwn(e.raw));
   Object.keys(ST.comp).forEach(k=>{ if (ST.comp[k] && ST.comp[k+'_from']===ev.id){ delete ST.comp[k]; delete ST.comp[k+'_from']; } });
   if (deficit <= 2 || !cand.length) return null;
   const tgt = cand[0];
@@ -1090,10 +1094,13 @@ function autoReplan(){
       if (f.zone.key === 'high' && c.date <= addDays(TODAY, 1)) continue; // müde: nicht sofort hart
       pick = c; break;
     }
-    if (pick){
+    if (pick && isOwn(ev.raw) && isOwn(pick.raw)){
       ST.moves[ev.id] = pick.date;
       ST.removed[pick.id] = 'auto';
       ST.auto[ev.id] = { to: pick.id, from: ev.date, day: pick.date, name: ev.name, easy: pick.name };
+    } else if (pick){
+      // Fremde Trainings fasst die Automatik nicht an: nur ein Vorschlag
+      ST.auto[ev.id] = { suggest:true, to: pick.id, from: ev.date, day: pick.date, name: ev.name, easy: pick.name, src: sourceOf(ev.raw) };
     } else {
       ST.auto[ev.id] = { none:true, from: ev.date, name: ev.name };
     }
@@ -1103,7 +1110,9 @@ function autoReplan(){
 function autoNote(){
   const items = Object.entries(ST.auto).filter(([id,a]) => !a.seen && a.from && a.from >= monday(TODAY));
   if (!items.length) return '';
-  return items.map(([id,a]) => a.none
+  return items.map(([id,a]) => a.suggest
+    ? `<p class="note"><b>Vorschlag:</b> ${esc(a.name)} von ${WDL[wd(a.from)]} ist ausgefallen. Soll die Einheit auf <b>${WDL[wd(a.day)]}</b> rutschen? Dafür fällt ${esc(a.easy)} weg. <span class="small" style="display:block;margin-top:6px;color:var(--lilac)">Die Einheiten sind von ${esc(a.src)}, deshalb ändere ich nichts ohne dich.</span><span style="display:flex;gap:8px;margin-top:10px"><button class="chip" data-act="autoapply" data-id="${id}">Übernehmen</button><button class="chip" data-act="autook" data-id="${id}" style="color:var(--lilac)">Nein, danke</button></span></p>`
+    : a.none
     ? `<p class="note"><b>Plan angepasst:</b> ${esc(a.name)} von ${WDL[wd(a.from)]} passt diese Woche nicht mehr sicher rein und fällt weg. Fehlender Umfang wird locker ausgeglichen. <button class="chip" data-act="autook" data-id="${id}" style="margin-top:8px">Okay</button></p>`
     : `<p class="note"><b>Plan angepasst:</b> ${WDL[wd(a.from)]} ist ausgefallen, deshalb ist ${WDL[wd(a.day)]} jetzt <b>${esc(a.name)}</b> statt ${esc(a.easy)}.<span style="display:flex;gap:8px;margin-top:10px"><button class="chip" data-act="autook" data-id="${id}">Passt</button><button class="chip" data-act="autoundo" data-id="${id}" style="color:var(--lilac)">Rückgängig</button></span></p>`).join('');
 }
@@ -1111,7 +1120,11 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const { act, id } = b.dataset;
   const a = ST.auto[id];
-  if (act === 'autook' && a){ a.seen = true; save(); render(); if (!a.none){ pushMove(id, a.day); pushDelete(String(a.to)); } }
+  if (act === 'autook' && a){ a.seen = true; save(); render(); if (!a.none && !a.suggest){ pushMove(id, a.day); pushDelete(String(a.to)); } }
+  if (act === 'autoapply' && a){
+    ST.moves[id] = a.day; ST.removed[a.to] = 'auto'; a.seen = true; delete a.suggest; save(); render();
+    toast(`Übernommen: ${WDL[wd(a.day)]} ist jetzt ${a.name}`); pushMove(id, a.day); pushDelete(String(a.to));
+  }
   if (act === 'autoundo' && a){
     delete ST.moves[id]; if (a.to) delete ST.removed[a.to];
     ST.auto[id] = { none:true, undone:true, seen:true, from:a.from, name:a.name };
@@ -1170,7 +1183,8 @@ function weekBlock(mon){
       const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
       const meta = st.s==='done' && st.act ? (isRun(st.act.type) ? `${(st.act.distance/1000).toFixed(1)} km · ${mins(st.act.moving_time)} min · ${paceStr(st.act.average_speed)} /km` : `${st.act.name} · ${mins(st.act.moving_time)} min`) : `${ev.cat.name}${ev.dur?` · ${mins(ev.dur)} min`:''}${ev.variant?` · ${VARIANTS[ev.variant]}`:''}${ev.extra?` · +${mins(ev.extra)} min Ausgleich`:''}${ST.moves[ev.id]?' · verschoben':''}`;
       const movable = st.s!=='done' && ev.date >= TODAY;
-      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"${movable?' data-drag="1"':''}><span class="stripe" style="background:${ev.cat.col}"></span><span class="t"><span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
+      const srcTag = `<span style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:${isOwn(ev.raw)?'var(--lime)':'var(--lilac)'};opacity:.85">${sourceOf(ev.raw)}</span>`;
+      h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"${movable?' data-drag="1"':''}><span class="stripe" style="background:${ev.cat.col}"></span><span class="t">${srcTag}<span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
     }
     h += `</div>`;
   }
@@ -1350,13 +1364,13 @@ function pushShape(id){
   const ev = buildEvent(raw);
   const base = cleanName(ST.orig[id].name).replace(/^On\.Track · /,'');
   const tag = ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
-  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${base}${tag}`, description: stepsToText(ev.steps) }));
+  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${base}${tag}`, description: stepsToText(ev.steps) + `\n\n${OWN_MARK}` }));
 }
 function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
 function pushCreate(gen, day){
   if (!gen) return;
   const steps = flatSteps(gen.steps);
-  sync('Das Workout', () => api('POST', '/api/events', { type:'Run', start_date_local:`${day}T00:00:00`, name:`On.Track · ${gen.t.name}`, description: stepsToText(steps) }));
+  sync('Das Workout', () => api('POST', '/api/events', { type:'Run', start_date_local:`${day}T00:00:00`, name:`On.Track · ${gen.t.name}`, description: stepsToText(steps) + `\n\n${OWN_MARK}` }));
   toast(day === TODAY ? 'Wird an deine Uhr gesendet …' : `Wird für ${nice(day)} eingeplant …`);
 }
 
@@ -1508,7 +1522,9 @@ document.addEventListener('click', e=>{
     ST.unfit[TODAY]=v;
     if (v==='zeit') setVariant(id,'kuerzer');
     if (v==='muede') setVariant(id,'leichter');
-    if (v==='krank'){ ST.removed[id]=true; const hard = plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard); hard.forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render(); toast('Heute Pause. Die nächsten harten Einheiten sind entschärft.'); pushDelete(id); syncShapes(hard.map(x=>String(x.id))); }
+    if (v==='krank'){ ST.removed[id]=true; const all = plan().filter(x=>x.date>TODAY && x.date<=addDays(TODAY,2) && x.cat.hard); const hard = all.filter(x=>isOwn(x.raw)), foreign = all.filter(x=>!isOwn(x.raw)); hard.forEach(x=>ST.variants[x.id]='leichter'); save(); closeSheet(); render();
+      toast(foreign.length ? `Heute Pause. ${foreign.map(x=>`${WD[wd(x.date)]} ${x.name}`).join(', ')} ist von ${sourceOf(foreign[0].raw)} – tipp es an, wenn du es entschärfen willst.` : 'Heute Pause. Die nächsten harten Einheiten sind entschärft.');
+      pushDelete(id); syncShapes(hard.map(x=>String(x.id))); }
   }
   if (act==='feel'){ ST.feel[id]=v; save(); render(); toast('Danke, fließt in die nächste Woche ein.'); }
   if (act==='noop') toast('Liegt schon auf deiner Uhr.');
