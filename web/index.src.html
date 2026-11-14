@@ -381,7 +381,7 @@ function viewToday(){
   const streak = streakDays();
   h += `<section class="status">
     <p class="pill ${ds.on?'on':'off'}">${esc(ds.label)}</p>
-    <p class="muted">${esc(ds.sub)}${streak>=2?` · seit ${streak} Tagen am Stück: Läuft.`:''}</p></section>`;
+    ${(ds.sub || streak>=2) ? `<p class="muted">${esc(ds.sub)}${ds.sub && streak>=2 ? ' · ' : ''}${streak>=2?`Seit ${streak} Tagen am Stück: Läuft.`:''}</p>` : ''}</section>`;
   h += autoNote();
   h += dayFormSection(todays);
   if (!todays.length){

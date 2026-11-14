@@ -592,7 +592,7 @@ function dayStatus(){
   if (d.rest) return { on:true, label:'Läuft.', sub:'Ruhetag. Erholung gehört zum Plan.' };
   if (d.done) return { on:true, label:'Läuft.', sub:'Heute erledigt. Stark.' };
   const ev = d.evs.find(e => statusOf(e).s !== 'done');
-  return { on:false, label:`Heute: ${ev.cat.name} · ${mins(ev.dur)} min`, sub:'Sobald dein Lauf von der Uhr reinkommt, legt sich der Schalter um.' };
+  return { on:false, label:`Heute: ${ev.cat.name} · ${mins(ev.dur)} min`, sub:'' };
 }
 function streakDays(){
   let n = dayDone(TODAY).done ? 1 : 0;
@@ -731,7 +731,7 @@ function weekBlock(mon){
 }
 function viewWeek(){
   let h = topBar();
-  h += `<a href="#ziel" class="btn ghost" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Neuen Plan erstellen</a>`;
+  h += `<a href="#ziel" class="btn lime" style="display:flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;height:56px;font-family:var(--display);font-weight:900;font-size:15px;letter-spacing:.5px;text-transform:uppercase"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Neuen Plan erstellen</a>`;
   h += `<p class="small muted" style="text-align:center">Kurz tippen für Details · lange drücken zum Verschieben</p>`;
   const thisMon = monday(TODAY), end = lastPlanDate();
   h += `<section class="list">`;
