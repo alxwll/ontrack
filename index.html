@@ -1572,8 +1572,8 @@ function openCatSheet(html){
   openSheet(html);
   const nr = document.querySelector('.sheet .catrow');
   if (!nr) return;
+  // Beim Öffnen immer bei Erholung starten (leicht → schwer), beim Wechseln die Position halten
   if (keep !== null) nr.scrollLeft = keep;
-  else { const act = [...nr.children].find(c => c.style.background && !c.style.background.includes('transparent')); if (act) nr.scrollLeft = Math.max(0, act.offsetLeft - 40); }
 }
 
 /* ---------- Sheets ---------- */
