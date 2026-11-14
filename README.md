@@ -1,111 +1,66 @@
-<p align="center"><img src="icons/icon-192.png" width="96" alt="On. Track App-Icon"></p>
-
-<h1 align="center">ON. TRACK</h1>
-
-<p align="center"><b>Mein eigener Lauf-Coach fürs Handy.</b><br>
-Trainingsplan, Tagesform und Anpassungen in einer App, synchron mit Intervals.icu und der Garmin-Uhr.</p>
-
-<p align="center"><a href="https://alxwll.github.io/ontrack/">App öffnen</a> · gebaut für mich, offen für mehr</p>
+<a href="https://alxwll.github.io/ontrack/about/"><img src="docs/banner.png" alt="ON. TRACK – Läuft. Dein Lauf-Coach, der mitdenkt."></a>
 
 <p align="center">
-<img src="docs/screens/01-heute.png" width="31%" alt="Startseite">&nbsp;
-<img src="docs/screens/02-woche.png" width="31%" alt="Woche">&nbsp;
-<img src="docs/screens/07-form.png" width="31%" alt="Form">
+<a href="https://alxwll.github.io/ontrack/about/"><b>→ Zur Landingpage</b></a> &nbsp;·&nbsp;
+<a href="https://alxwll.github.io/ontrack/"><b>App öffnen</b></a>
+</p>
+
+<p align="center">Trainingsplan, Tagesform und Anpassungen in einer App,<br>synchron mit Intervals.icu und direkt auf der Garmin-Uhr.</p>
+
+<p align="center">
+<img src="docs/screens/01-heute.png" width="24%" alt="Heute">
+<img src="docs/screens/04-vorschau-leichter.png" width="24%" alt="Leichter mit Vorschau">
+<img src="docs/screens/02-woche.png" width="24%" alt="Woche">
+<img src="docs/screens/07-form.png" width="24%" alt="Form">
 </p>
 
 <p align="center"><sub>Alle Screenshots zeigen erfundene Demo-Daten.</sub></p>
 
 ---
 
-## Die Idee
+### ⚡ Was sie kann
 
-Trainings-Apps wie Runna oder Trait machen vieles richtig: klare Pläne, schöne Grafiken, einfaches Verschieben. Aber sie kennen meine Garmin-Daten nur halb, und mein Coach-Plan aus Intervals.icu lebt woanders. **On. Track** bringt beides zusammen: Es liest den Plan, die Läufe und die Erholungswerte aus Intervals.icu, macht sie verständlich und schreibt Änderungen zurück bis auf die Uhr.
+☀️ **Bereitschaft statt Bauchgefühl:** 0 bis 100 aus HRV, Ruhepuls, Schlaf und Form, dazu ein Check-in für das, was die Uhr nicht weiß.
 
-Der Name ist Programm: Der Schalter im Logo steht für „Läuft“ oder eben nicht, und die App hilft dabei, auf Kurs zu bleiben.
+🐢 **Leichter heißt schlauer:** Jede Änderung mit Vorschau. Aus VO2max-Intervallen wird ein lockerer Dauerlauf statt nur langsamer Intervalle.
 
-## Funktionen
+🗓️ **Verschieben wie im Kalender:** lange drücken und ziehen, mit Ampel bei Kollisionen und automatischem Ausgleich.
 
-### ☀️ Heute: Bereitschaft statt Bauchgefühl
+🎲 **Train now:** Dauer wählen, die App schlägt das passende Workout vor. Dahinter stecken 37 Workouts in neun Kategorien.
 
-<p align="center"><img src="docs/screens/01-heute.png" width="48%" alt="Startseite mit Bereitschaft und heutigem Training"></p>
+📈 **Wachsen im grünen Band:** Laufaufbau mit Soll-Band und Trainingsform in Klartext, für 6 Wochen bis 1 Jahr.
 
-- **Bereitschaft von 0 bis 100**, berechnet aus HRV und Ruhepuls im Vergleich zum 30-Tage-Schnitt, Schlafdauer bzw. Garmin-Schlafwert und der Trainingsform
-- **Gründe als Chips**, z. B. „HRV −27 %“ oder „4,8 h Schlaf“, und ein klarer Satz im Coaching-Ton
-- **Morgen-Check-in** für das, was die Uhr nicht weiß: schlecht geschlafen, Alkohol, Stress, schwere Beine, kränklich
-- Ist die Bereitschaft niedrig und eine harte Einheit steht an, schlägt die App die **leichte Variante** vor
-- Das heutige Training mit Profilgrafik, Quelle (eigener Plan oder Coach) und „Heute nicht fit“
+🎯 **Ein Ziel, ein ehrlicher Plan:** 5 km bis Marathon, 2 bis 6 Lauftage, langer Lauf an jedem Wochentag und Warnungen, wenn der Plan zu viel will.
 
-### 🗓️ Woche: verschieben wie im Kalender
+🔁 **Zurück auf die Uhr:** Änderungen landen als strukturierte Workouts in Intervals.icu und auf der Garmin. Fremde Pläne bleiben unangetastet.
 
-<p align="center"><img src="docs/screens/02-woche.png" width="48%" alt="Wochenansicht mit Einheiten"></p>
+---
 
-- **Lange drücken und ziehen** (mit Vibration) oder antippen und einen Tag wählen, auch über mehrere Wochen
-- **Ampel beim Verschieben**: grün passt, gelb mit Hinweis, rot kollidiert mit einer harten Einheit
-- **Ausgleich**: Fällt Belastung weg, wandert ein Teil als lockerer Umfang in den nächsten passenden Lauf, gedeckelt auf +15 %
-- Erledigte Läufe mit Kilometern und Pace, Wochenbelastung als Balken
+<details>
+<summary><b>🛠️ Technik und selbst bauen</b></summary>
 
-### 🔍 Details und Anpassen mit Vorschau
+<br>
 
-<p align="center"><img src="docs/screens/03-detail.png" width="48%" alt="Workout-Detail mit Profil und Ablauf">&nbsp;<img src="docs/screens/04-vorschau-leichter.png" width="48%" alt="Vorschau: Intervalle werden zum lockeren Dauerlauf"></p>
-
-- **Profilgrafik und Ablauf** aus den echten Workout-Schritten, Pace-Bereiche aus der eigenen Schwellenpace
-- **Leichter, Kürzer, Schwerer, Länger**: Jede Änderung zeigt erst eine **Vorschau** (vorher/nachher, Dauer, Belastung, Pace) und wird erst nach „Übernehmen“ aktiv
-- **„Leichter“ denkt mit**: Aus Sprints und VO2max-Intervallen wird ein lockerer Dauerlauf statt nur langsamerer Intervalle. Schwelle und Tempo werden ruhiger und kürzer.
-- **Tauschen** gegen jedes Workout aus der Bibliothek, auch über Kategorien hinweg
-- **Original wiederherstellen** mit einem Tipp
-
-### ⚡ Train now und Workout-Bibliothek
-
-<p align="center"><img src="docs/screens/05-train-now.png" width="48%" alt="Train now mit Vorschlag">&nbsp;<img src="docs/screens/06-bibliothek.png" width="48%" alt="Workout-Bibliothek, Kategorie Schwelle"></p>
-
-- **Train now**: Dauer wählen, die App schlägt anhand von Bereitschaft und letzten Einheiten die passende Art vor, und das Workout geht direkt auf die Uhr
-- **Bibliothek mit 37 Workouts** in neun Kategorien: Erholung, Grundlage, Tempo, Schwelle, Berg, VO2max, Speed, Wettkampf und Tests
-- Jedes Workout passt sich an die gewünschte Dauer an, ohne die Kernintervalle zu verwässern
-
-### 📈 Form und Laufaufbau
-
-<p align="center"><img src="docs/screens/07-form.png" width="48%" alt="Formseite mit Laufaufbau">&nbsp;<img src="docs/screens/08-form-verlauf.png" width="48%" alt="Form- und Fitnessverlauf"></p>
-
-- **Trainingsform** (Fitness minus Ermüdung) in fünf Zonen von „Sehr erholt“ bis „Hohe Belastung“, mit Erklärung in Klartext
-- **Laufaufbau**: Kilometer der letzten 7 Tage als Kurve, ein grünes **Soll-Band** aus dem eigenen Schnitt und die geplanten Kilometer gepunktet. Oben steht die Veränderung zu den vier Wochen davor in Prozent.
-- Zeiträume **6 Wochen, 3 Monate, 1 Jahr**; zum Wischen über die Grafik gibt es Werte pro Tag
-
-### 🎯 Plan erstellen
-
-<p align="center"><img src="docs/screens/09-ziel.png" width="48%" alt="Ziel festlegen">&nbsp;<img src="docs/screens/10-planvorschau.png" width="48%" alt="Planvorschau mit Warnhinweis"></p>
-
-- Ziel wählen: **5 km, 10 km, Halbmarathon oder Marathon**, Renndatum und optional eine Zielzeit
-- **2 bis 6 Lauftage**, langer Lauf an jedem Wochentag. Die übrigen Einheiten verteilt der Planer so, dass harte Tage nie direkt aufeinander folgen.
-- Phasen **Grundlage, Aufbau, Spitze, Tapering**, höchstens 10 % mehr pro Woche, jede vierte Woche leichter
-- **Ehrliche Warnungen**, wenn der Plan zu viel will: zu wenig Wochen, zu steile Steigerung, Zielzeit weit weg von der Prognose oder zu wenig Lauftage für die Strecke
-- Prognose aus der Schwellenpace und eine Fitness-Zielkurve bis zum Renntag
-
-## Zusammenspiel mit anderen Plänen
-
-On. Track arbeitet neben einem bestehenden Coach-Plan (bei mir IntervalCoach). **Fremde Einheiten bleiben unangetastet**, solange ich sie nicht selbst ändere. Automatische Anpassungen wie Ausgleich oder Entschärfen nach einem kranken Tag laufen nur bei eigenen On.Track-Einheiten. Erkennbar sind sie am Namen `On.Track · …`.
-
-## Technik
-
-- **App**: eine einzige HTML-Datei in Vanilla JS, ohne Framework, als PWA installierbar. Gehostet über GitHub Pages.
-- **Server**: ein kleiner Cloudflare Worker, der den Intervals-Key sicher verwahrt und nur mit dem eigenen Zugangscode antwortet
-- **Datenfluss**: Garmin → Intervals.icu → Worker → App, und für Änderungen denselben Weg zurück bis auf die Uhr
-- **Zurückschreiben**: Verschieben, Anpassen, Tauschen, Streichen und neue Workouts landen als strukturierte Workouts in Intervals.icu und damit auf der Garmin
+- **App:** eine HTML-Datei in Vanilla JS, als PWA installierbar, gehostet über GitHub Pages
+- **Server:** Cloudflare Worker, der den Intervals-Key verwahrt und nur mit Zugangscode antwortet
+- **Datenfluss:** Garmin → Intervals.icu → Worker → App, und denselben Weg zurück
 
 ```
 web/index.src.html   App: Ansichten, Zustand, Workout-Logik
 web/features.js      Bereitschaft, Form, Bibliothek, Train now, Planer, Sync
 worker/src/index.js  Cloudflare Worker (Snapshot lesen, Events schreiben)
 build.py             baut index.html, optional mit eingebetteten Daten
-docs/screens/        Screenshots für diese Seite
+about/               Landingpage
+docs/                Banner und Screenshots
 ```
 
-## Selbst bauen
+**App bauen**
 
 ```
 python3 build.py empty_snapshot.json https://<dein-worker>.workers.dev index.html
 ```
 
-### Server einrichten (einmalig, ca. 15 Minuten)
+**Server einrichten** (einmalig, ca. 15 Minuten)
 
 1. Kostenloses Konto bei Cloudflare anlegen.
 2. Node.js installieren, dann im Ordner `worker/`:
@@ -115,12 +70,10 @@ python3 build.py empty_snapshot.json https://<dein-worker>.workers.dev index.htm
    npx wrangler secret put APP_TOKEN           # selbst ausgedachter, langer Zugangscode
    npx wrangler deploy
    ```
-3. Die angezeigte Adresse (`https://ontrack.<name>.workers.dev`) beim Bauen als zweites Argument angeben.
+3. Die angezeigte Adresse beim Bauen als zweites Argument angeben.
 4. App hosten, z. B. mit GitHub Pages. Beim ersten Öffnen fragt sie einmal nach dem Zugangscode.
 5. In den Worker-Variablen `ALLOWED_ORIGIN` auf die Adresse der App setzen und erneut deployen.
 
-## Als Nächstes
+</details>
 
-- Ganzen Plan mit einem Tipp nach Intervals übernehmen
-- Soll-Band im Laufaufbau direkt aus dem eigenen Plan ableiten
-- KI-Debrief nach jedem Lauf und ein Wochenrückblick
+<p align="center"><sub>Gebaut von Alex in Stuttgart · Als Nächstes: ganzen Plan nach Intervals übernehmen, Soll-Band aus dem eigenen Plan, KI-Debrief nach jedem Lauf</sub></p>

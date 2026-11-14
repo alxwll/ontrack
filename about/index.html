@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>On. Track – Dein Lauf-Coach, der mitdenkt</title>
+<meta name="description" content="On. Track: Trainingsplan, Tagesform und Anpassungen in einer App, synchron mit Intervals.icu und deiner Garmin-Uhr.">
+<meta property="og:title" content="On. Track – Läuft.">
+<meta property="og:description" content="Trainingsplan, Tagesform und Anpassungen in einer App, synchron mit Intervals.icu und Garmin.">
+<meta property="og:image" content="https://alxwll.github.io/ontrack/docs/banner.png">
+<meta name="theme-color" content="#2A0F5C">
+<link rel="icon" href="../icons/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#2A0F5C; --bg2:#3A1A78; --deep:#1A0840; --card:#6D28FF; --line:#4B2A8A;
+  --lilac:#C9B6FF; --text:#F1EAFF; --lime:#D7FF3D;
+  --z1:#C9B6FF; --z2:#FFD84D; --z3:#FF8A1F; --z4:#FF3B3B; --z5:#E838A8;
+  --display:'Archivo',system-ui,sans-serif; --sans:'Space Grotesk',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;overflow-x:hidden}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+img{display:block;max-width:100%}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* Logo mit Schalter */
+.logo{display:inline-flex;align-items:center;gap:.28em;font-family:var(--display);font-weight:900;letter-spacing:.02em;text-decoration:none}
+.sw{width:1.5em;height:.86em;border-radius:99px;background:var(--line);padding:.1em;display:flex;transition:background .5s ease .3s}
+.sw i{width:.66em;height:.66em;border-radius:99px;background:var(--lilac);transition:transform .5s cubic-bezier(.6,-0.4,.3,1.4) .3s, background .5s ease .3s}
+.on .sw{background:var(--lime)} .on .sw i{transform:translateX(.64em);background:var(--bg)}
+
+/* Navigation */
+.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(42,15,92,.72);border-bottom:1px solid rgba(201,182,255,.12)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+.nav .logo{font-size:20px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:52px;padding:0 26px;border-radius:99px;font-family:var(--display);font-weight:900;text-transform:uppercase;letter-spacing:.04em;font-size:15px;text-decoration:none;transition:transform .2s, box-shadow .2s}
+.btn.lime{background:var(--lime);color:var(--bg);box-shadow:0 10px 40px -10px rgba(215,255,61,.55)}
+.btn.lime:hover{transform:translateY(-2px);box-shadow:0 16px 50px -10px rgba(215,255,61,.7)}
+.btn.ghost{border:2px solid var(--lilac);color:var(--text)}
+.btn.ghost:hover{border-color:var(--lime);color:var(--lime)}
+.btn.sm{height:40px;padding:0 18px;font-size:13px}
+
+/* Hero */
+.hero{position:relative;padding:72px 0 40px;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-20% -10% auto;height:120%;background:radial-gradient(50% 45% at 70% 45%,rgba(109,40,255,.55),transparent 70%),radial-gradient(30% 30% at 25% 20%,rgba(215,255,61,.10),transparent 70%);pointer-events:none}
+.hero .wrap{position:relative;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:40px;align-items:center}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:99px;background:rgba(215,255,61,.12);color:var(--lime);font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.eyebrow b{width:8px;height:8px;border-radius:99px;background:var(--lime);box-shadow:0 0 0 0 rgba(215,255,61,.7);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 10px rgba(215,255,61,0)}100%{box-shadow:0 0 0 0 rgba(215,255,61,0)}}
+.hero h1{font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:clamp(46px,4.9vw,74px);line-height:.9;letter-spacing:-.01em;margin:22px 0 22px}
+.hero h1 .logo{font-size:1em;display:flex}
+.hero h1 em{font-style:normal;color:var(--lime);display:block}
+.lead{font-size:clamp(18px,2vw,21px);line-height:1.5;color:var(--lilac);max-width:30em;margin:0 0 30px}
+.lead strong{color:var(--text);font-weight:500}
+.ctas{display:flex;flex-wrap:wrap;gap:12px}
+.fineprint{margin-top:18px;font-size:13px;color:var(--lilac);opacity:.8}
+
+/* Telefone */
+.phone{position:relative;width:100%;aspect-ratio:390/844;border-radius:38px;padding:9px;background:linear-gradient(160deg,#4B2A8A,#170636 60%);box-shadow:0 40px 80px -30px rgba(0,0,0,.7),0 0 0 1px rgba(201,182,255,.18) inset}
+.phone img{width:100%;height:100%;object-fit:cover;object-position:top;border-radius:30px}
+.fan{position:relative;height:min(620px,62vw);min-height:440px}
+.fan .phone{position:absolute;width:44%;top:50%;left:50%}
+.fan .p1{transform:translate(-110%,-46%) rotate(-9deg);opacity:.92}
+.fan .p3{transform:translate(18%,-46%) rotate(9deg);opacity:.92}
+.fan .p2{transform:translate(-50%,-52%);z-index:2;width:48%}
+.float{animation:float 6s ease-in-out infinite}
+@keyframes float{50%{margin-top:-12px}}
+
+/* Laufband */
+.marquee{border-block:1px solid rgba(201,182,255,.15);background:var(--deep);overflow:hidden;padding:18px 0}
+.marquee div{display:flex;gap:44px;width:max-content;animation:scroll 34s linear infinite;font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:22px;letter-spacing:.02em;white-space:nowrap}
+.marquee span:nth-child(odd){color:var(--lime)} .marquee span:nth-child(even){color:var(--lilac)}
+@keyframes scroll{to{transform:translateX(-50%)}}
+
+/* Abschnitte */
+section{padding:110px 0}
+.kicker{font-family:var(--display);font-weight:900;color:var(--lime);font-size:15px;letter-spacing:.12em;text-transform:uppercase}
+h2{font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:clamp(36px,5.4vw,68px);line-height:.95;margin:14px 0 20px}
+h2 em{font-style:normal;color:var(--lime)}
+.copy p{font-size:18px;line-height:1.6;color:var(--lilac);margin:0 0 18px;max-width:32em}
+.copy p strong{color:var(--text);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.chip{padding:8px 14px;border-radius:99px;background:var(--bg2);font-weight:700;font-size:14px;color:var(--text)}
+.chip.o{color:var(--z3)} .chip.l{color:var(--lime)}
+
+.feature .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:64px;align-items:center}
+.feature.flip .phones{order:-1}
+.phones{display:flex;gap:18px;justify-content:center;align-items:flex-start}
+.phones .phone{max-width:290px}
+.phones .phone + .phone{margin-top:60px}
+.feature:nth-of-type(even){background:linear-gradient(180deg,transparent,rgba(26,8,64,.6) 20%,rgba(26,8,64,.6) 80%,transparent)}
+
+/* Zonen */
+.zones{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:40px}
+.zone{border-radius:22px;padding:22px 18px 20px;min-height:170px;display:flex;flex-direction:column;justify-content:space-between;color:var(--bg);font-weight:700}
+.zone b{font-family:var(--display);font-weight:900;font-size:22px;text-transform:uppercase;line-height:1}
+.zone span{font-size:14px;opacity:.85}
+.zone.z1{background:transparent;border:3px solid var(--z1);color:var(--z1)}
+.zone.z2{background:var(--z2)} .zone.z3{background:var(--z3)} .zone.z4{background:var(--z4);color:#fff} .zone.z5{background:var(--z5);color:#fff}
+
+/* Flow */
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:44px;counter-reset:f}
+.step{position:relative;background:var(--bg2);border-radius:26px;padding:26px 22px;min-height:200px}
+.step::before{counter-increment:f;content:"0" counter(f);font-family:var(--display);font-weight:900;font-size:44px;color:var(--lime);line-height:1;display:block;margin-bottom:18px}
+.step h3{margin:0 0 8px;font-family:var(--display);font-weight:900;text-transform:uppercase;font-size:19px}
+.step p{margin:0;color:var(--lilac);line-height:1.5}
+.step:not(:last-child)::after{content:"→";position:absolute;right:-13px;top:50%;transform:translateY(-50%);z-index:2;width:26px;height:26px;border-radius:99px;background:var(--lime);color:var(--bg);display:grid;place-items:center;font-weight:900;font-size:15px}
+
+/* Schluss */
+.final{text-align:center;padding:130px 0 120px;position:relative;overflow:hidden}
+.final::before{content:"";position:absolute;left:50%;top:50%;width:900px;height:900px;transform:translate(-50%,-50%);background:radial-gradient(closest-side,rgba(215,255,61,.16),transparent);pointer-events:none}
+.final .big{position:relative;font-size:clamp(48px,12vw,150px);justify-content:center;display:flex;margin-bottom:22px}
+.final p{position:relative;font-size:20px;color:var(--lilac);margin:0 0 34px}
+footer{border-top:1px solid rgba(201,182,255,.12);padding:28px 0 calc(28px + env(safe-area-inset-bottom));font-size:14px;color:var(--lilac)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between}
+
+/* Einblenden */
+.rv{opacity:0;transform:translateY(36px);transition:opacity .8s ease, transform .8s cubic-bezier(.2,.7,.2,1)}
+.rv.in{opacity:1;transform:none}
+.rv.d1{transition-delay:.1s}.rv.d2{transition-delay:.2s}
+
+@media (max-width:860px){
+  .hero{padding-top:40px}
+  .hero h1{font-size:11.6vw}
+  .fan .p1{transform:translate(-106%,-46%) rotate(-8deg)} .fan .p3{transform:translate(6%,-46%) rotate(8deg)}
+  .hero .wrap,.feature .wrap{grid-template-columns:minmax(0,1fr);gap:36px}
+  .feature.flip .phones{order:0}
+  .fan{height:118vw;min-height:0;max-height:620px}
+  section{padding:80px 0}
+  .zones{grid-template-columns:repeat(5,minmax(120px,1fr));overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory}
+  .zone{scroll-snap-align:start;min-height:140px}
+  .flow{grid-template-columns:1fr 1fr}
+  .step:nth-child(2)::after{display:none}
+  .phones .phone{max-width:46%}
+  .phones .phone + .phone{margin-top:40px}
+}
+@media (max-width:520px){
+  .wrap{padding:0 20px}
+  .flow{grid-template-columns:1fr}
+  .step:not(:last-child)::after{display:none}
+  .nav .btn.sm span{display:none}
+  .ctas .btn{flex:1;padding:0 14px;min-width:0}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .rv{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" id="navlogo" href="#top" aria-label="On. Track"><span>ON</span><span class="sw"><i></i></span><span>TRACK</span></a>
+    <a class="btn lime sm" href="../">App öffnen<span> →</span></a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow"><b></b>Für Garmin &amp; Intervals.icu</span>
+        <h1><span class="logo" id="herologo" aria-label="On. Track"><span>ON</span><span class="sw"><i></i></span><span>TRACK</span></span><em>Läuft.</em></h1>
+        <p class="lead"><strong>Dein Lauf-Coach, der mitdenkt.</strong> Trainingsplan, Tagesform und Anpassungen in einer App. Alles synchron mit Intervals.icu und direkt auf deiner Uhr.</p>
+        <div class="ctas">
+          <a class="btn lime" href="../">App öffnen</a>
+          <a class="btn ghost" href="#features">Was sie kann</a>
+        </div>
+        <p class="fineprint">Gebaut für mich, offen für mehr. Alle Bilder zeigen Demo-Daten.</p>
+      </div>
+      <div class="fan" aria-hidden="true">
+        <div class="phone p1"><img src="../docs/screens/02-woche.png" alt=""></div>
+        <div class="phone p2 float"><img src="../docs/screens/01-heute.png" alt=""></div>
+        <div class="phone p3"><img src="../docs/screens/07-form.png" alt=""></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="marquee" aria-hidden="true"><div>
+    <span>HRV</span><span>Ruhepuls</span><span>Schlaf</span><span>Drag &amp; Drop</span><span>Train now</span><span>Laufaufbau</span><span>Garmin</span><span>Intervals.icu</span><span>Planer</span><span>Leichter</span>
+    <span>HRV</span><span>Ruhepuls</span><span>Schlaf</span><span>Drag &amp; Drop</span><span>Train now</span><span>Laufaufbau</span><span>Garmin</span><span>Intervals.icu</span><span>Planer</span><span>Leichter</span>
+  </div></div>
+
+  <section class="feature" id="features">
+    <div class="wrap">
+      <div class="copy rv">
+        <div class="kicker">01 · Heute</div>
+        <h2>Bereitschaft statt <em>Bauchgefühl.</em></h2>
+        <p>Jeden Morgen ein Wert von 0 bis 100. Er setzt sich zusammen aus <strong>HRV, Ruhepuls und Schlaf</strong> im Vergleich zu deinem Normalwert, dazu kommt deine Trainingsform.</p>
+        <p>Für alles, was die Uhr nicht weiß, gibt es den <strong>Check-in mit einem Tipp</strong>: schlecht geschlafen, Alkohol, Stress, schwere Beine. Ist der Tag nichts für Vollgas, schlägt die App die leichtere Variante vor.</p>
+        <div class="chips"><span class="chip o">HRV −27 %</span><span class="chip o">4,8 h Schlaf</span><span class="chip l">Startklar 96</span></div>
+      </div>
+      <div class="phones rv d1"><div class="phone"><img src="../docs/screens/01-heute.png" alt="Startseite mit Bereitschaft"></div></div>
+    </div>
+  </section>
+
+  <section class="feature flip">
+    <div class="wrap">
+      <div class="copy rv">
+        <div class="kicker">02 · Anpassen</div>
+        <h2>Leichter heißt <em>schlauer.</em></h2>
+        <p>Leichter, kürzer, schwerer, länger: Jede Änderung zeigt dir erst eine <strong>Vorschau mit vorher und nachher</strong>. Erst wenn du übernimmst, landet sie auf der Uhr.</p>
+        <p>Und „leichter“ denkt mit. Aus <strong>VO2max-Intervallen wird ein lockerer Dauerlauf</strong>, statt dass die Intervalle nur ein bisschen langsamer werden. Ein Tipp, und das Original ist zurück.</p>
+      </div>
+      <div class="phones rv d1">
+        <div class="phone"><img src="../docs/screens/03-detail.png" alt="Workout-Detail"></div>
+        <div class="phone"><img src="../docs/screens/04-vorschau-leichter.png" alt="Vorschau der leichteren Variante"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature">
+    <div class="wrap">
+      <div class="copy rv">
+        <div class="kicker">03 · Woche</div>
+        <h2>Verschieben wie im <em>Kalender.</em></h2>
+        <p><strong>Lange drücken, ziehen, loslassen</strong>, mit kurzer Vibration. Eine Ampel zeigt sofort, ob der neue Tag passt oder mit einer harten Einheit kollidiert.</p>
+        <p>Fällt eine Einheit aus, wandert ein Teil davon als <strong>lockerer Umfang in den nächsten passenden Lauf</strong>. So bleibt die Woche auf Kurs, ohne dass du nachrechnen musst.</p>
+      </div>
+      <div class="phones rv d1"><div class="phone"><img src="../docs/screens/02-woche.png" alt="Wochenansicht"></div></div>
+    </div>
+  </section>
+
+  <section class="feature flip">
+    <div class="wrap">
+      <div class="copy rv">
+        <div class="kicker">04 · Train now</div>
+        <h2>Keine Idee? <em>Los.</em></h2>
+        <p>Dauer wählen, und die App schlägt vor, was heute passt. Grundlage ist deine Bereitschaft und das, was du die letzten Tage gelaufen bist. <strong>Ein Tipp, und das Workout ist auf der Uhr.</strong></p>
+        <p>Dahinter steckt eine Bibliothek mit <strong>37 Workouts in neun Kategorien</strong>, von Erholung bis VO2max. Jedes passt sich an deine Zeit an, ohne die Kernintervalle zu verwässern.</p>
+      </div>
+      <div class="phones rv d1">
+        <div class="phone"><img src="../docs/screens/05-train-now.png" alt="Train now"></div>
+        <div class="phone"><img src="../docs/screens/06-bibliothek.png" alt="Workout-Bibliothek"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature">
+    <div class="wrap">
+      <div class="copy rv">
+        <div class="kicker">05 · Form</div>
+        <h2>Wachsen im <em>grünen Band.</em></h2>
+        <p>Der Laufaufbau zeigt deine Kilometer der letzten sieben Tage als Kurve, dazu ein <strong>Soll-Band aus deinem eigenen Schnitt</strong>. Bleibst du drin, wächst du gesund. Gepunktet siehst du, was dein Plan vorsieht.</p>
+        <p>Die Trainingsform erklärt in Klartext, ob du gerade aufbaust oder frisch bist. Wahlweise für 6 Wochen, 3 Monate oder ein Jahr.</p>
+      </div>
+      <div class="phones rv d1">
+        <div class="phone"><img src="../docs/screens/07-form.png" alt="Form und Laufaufbau"></div>
+        <div class="phone"><img src="../docs/screens/08-form-verlauf.png" alt="Form- und Fitnessverlauf"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature flip">
+    <div class="wrap">
+      <div class="copy rv">
+        <div class="kicker">06 · Planer</div>
+        <h2>Ein Ziel. <em>Ein ehrlicher Plan.</em></h2>
+        <p>5 km, 10 km, Halbmarathon oder Marathon: Renndatum, Lauftage und den Tag für den langen Lauf wählen. Der Planer baut <strong>Grundlage, Aufbau, Spitze und Tapering</strong> und legt harte Tage nie direkt nebeneinander.</p>
+        <p>Und er sagt dir ehrlich, wenn der Plan zu viel will: <strong>zu wenig Wochen, zu steiler Anstieg, Zielzeit zu ambitioniert</strong>.</p>
+      </div>
+      <div class="phones rv d1">
+        <div class="phone"><img src="../docs/screens/09-ziel.png" alt="Ziel festlegen"></div>
+        <div class="phone"><img src="../docs/screens/10-planvorschau.png" alt="Planvorschau"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="rv">
+        <div class="kicker">Eine Farbsprache</div>
+        <h2>Fünf Zonen. <em>Sofort lesbar.</em></h2>
+        <p style="font-size:18px;line-height:1.6;color:var(--lilac);max-width:36em;margin:0">Jede Grafik, jedes Workout und jede Woche spricht dieselbe Sprache. Ein Blick genügt, und du weißt, was heute ansteht.</p>
+      </div>
+      <div class="zones rv d1">
+        <div class="zone z1"><span>unter 80 %</span><b>Erholung</b></div>
+        <div class="zone z2"><span>80–90 %</span><b>Locker</b></div>
+        <div class="zone z3"><span>90–96 %</span><b>Tempo</b></div>
+        <div class="zone z4"><span>96–102 %</span><b>Schwelle</b></div>
+        <div class="zone z5"><span>über 102 %</span><b>VO2max</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:20px">
+    <div class="wrap">
+      <div class="rv">
+        <div class="kicker">So funktioniert's</div>
+        <h2>Von der Uhr. <em>Zurück auf die Uhr.</em></h2>
+      </div>
+      <div class="flow">
+        <div class="step rv"><h3>Garmin</h3><p>Deine Läufe, HRV, Ruhepuls und Schlaf kommen wie gewohnt von der Uhr.</p></div>
+        <div class="step rv d1"><h3>Intervals.icu</h3><p>Hier landen Daten und Plan, auch der von deinem bisherigen Coach.</p></div>
+        <div class="step rv d2"><h3>On. Track</h3><p>Macht alles verständlich und lässt dich mit einem Tipp anpassen.</p></div>
+        <div class="step rv"><h3>Zurück</h3><p>Änderungen gehen als strukturierte Workouts zurück bis auf die Uhr.</p></div>
+      </div>
+      <p class="rv" style="margin:28px 0 0;color:var(--lilac);font-size:16px;line-height:1.6;max-width:44em">Fremde Pläne bleiben unangetastet. Automatische Anpassungen laufen nur bei eigenen On.Track-Einheiten, alles andere änderst nur du selbst.</p>
+    </div>
+  </section>
+
+  <div class="final">
+    <div class="wrap">
+      <div class="logo big" id="finallogo" aria-label="On. Track"><span>ON</span><span class="sw"><i></i></span><span>TRACK</span></div>
+      <p>Bleib auf Kurs. Der Rest läuft.</p>
+      <a class="btn lime" href="../">App öffnen</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Gebaut von Alex in Stuttgart · Screenshots mit Demo-Daten</span>
+    <a href="https://github.com/alxwll/ontrack">Code auf GitHub</a>
+  </div>
+</footer>
+
+<script>
+  // Schalter im Logo legen sich um, sobald sie sichtbar werden; Abschnitte blenden beim Scrollen ein
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add(e.target.classList.contains('logo') ? 'on' : 'in'); io.unobserve(e.target); } }), { threshold: .18 });
+  document.querySelectorAll('.rv, #herologo, #finallogo').forEach(el => io.observe(el));
+  setTimeout(() => document.getElementById('navlogo').classList.add('on'), 600);
+</script>
+</body>
+</html>
