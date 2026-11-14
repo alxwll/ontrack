@@ -81,6 +81,7 @@ h1{font-size:28px;line-height:1.05} h2{font-size:16px;letter-spacing:1px}
 .legend span{display:flex;align-items:center;gap:6px}.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
 .scrim{position:fixed;inset:0;background:rgba(10,0,30,.6);display:flex;align-items:flex-end;justify-content:center;z-index:20}
 .sheet{width:100%;max-width:480px;background:var(--bg2);border-radius:24px 24px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:14px;max-height:85vh;overflow:auto}
+.sheet > *{flex-shrink:0}
 .sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);align-self:center}
 .mv{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .mv button{height:64px;border-radius:12px;border:none;font-weight:700;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--bg)}
@@ -121,7 +122,7 @@ const CONFIG = { apiBase: "https://ontrack.x-sall.workers.dev" }; // später: UR
 /* ---------- Daten ---------- */
 let SNAP = JSON.parse(document.getElementById('snapshot').textContent);
 const store = (() => { try { const k='ontrack.v1'; return { get:()=>JSON.parse(localStorage.getItem(k)||'{}'), set:v=>localStorage.setItem(k,JSON.stringify(v)) }; } catch(e){ return { get:()=>({}), set:()=>{} }; } })();
-const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{} }, store.get());
+const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{}, swaps:{} }, store.get());
 const save = () => { try { store.set(ST); } catch(e){} };
 
 let TODAY = SNAP.today;
@@ -232,7 +233,11 @@ function buildEvent(e0){
   // Hat On. Track das Workout schon in Intervals geändert, rechnen wir vom Original aus
   const o = ST.orig && ST.orig[e0.id];
   const e = o ? Object.assign({}, e0, { workout_doc:o.workout_doc, icu_training_load:o.load, name:o.name }) : e0;
-  const base = flatten(e.workout_doc && e.workout_doc.steps);
+  let base = flatten(e.workout_doc && e.workout_doc.steps);
+  const origBase = base;
+  const sw = ST.swaps && ST.swaps[e0.id];
+  const swT = sw && typeof LIB !== 'undefined' ? LIB.find(t => t.id === sw.tpl) : null;
+  if (swT){ const minutes = Math.max(20, Math.round(base.reduce((a,x)=>a+(x.duration||0),0)/60) || 45); base = flatSteps(fitWorkout(swT, minutes).steps); }
   let steps = base;
   const v = ST.variants[e.id];
   if (v) steps = applyVariant(base, v);
@@ -245,10 +250,10 @@ function buildEvent(e0){
   }
   const baseDur = base.reduce((a,s)=>a+(s.duration||0),0) || e.moving_time || 0;
   const dur = steps.length ? steps.reduce((a,s)=>a+(s.duration||0),0) : (e.moving_time||0);
-  const ratio = base.length ? estLoad(steps)/Math.max(estLoad(base),0.1) : 1;
+  const ratio = origBase.length ? estLoad(steps)/Math.max(estLoad(origBase),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
-  const cat = category(e, base);
-  return { raw:e0, id:e.id, date:eventDate(e), name:cleanName(e.name), type:e.type, steps, base, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra };
+  const cat = category(swT ? Object.assign({}, e, { name: swT.name, moving_time: base.reduce((a,x)=>a+x.duration,0) }) : e, base);
+  return { raw:e0, id:e.id, date:eventDate(e), name: swT ? swT.name : cleanName(e.name), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, modified: !!(v || swT) };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
@@ -398,12 +403,13 @@ function todayCard(ev){
   let h = `<section class="card">
     <div class="row"><span class="tag">${esc(ev.cat.name)}</span>${st.s==='done'?'<span class="chip">Erledigt</span>':`<span class="small" style="color:var(--text)">Auf der Uhr</span>`}</div>
     <h1>${esc(ev.name)}</h1>`;
+  if (hasSteps && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (hasSteps) h += `<button class="prof" data-act="detail" data-id="${ev.id}" aria-label="Details öffnen">${profileSVG(ev.steps,64)}<span class="row small" style="justify-content:flex-end;font-weight:700;padding-top:4px">Details ›</span></button>`;
   h += `<div class="stats"><div><p class="k">Dauer</p><p class="v">${mins(ev.dur)} min</p></div>`;
   if (core && core.pace) h += `<div><p class="k">Kern-Pace</p><p class="v">${pctToPace(core.pace.end)}–${pctToPace(core.pace.start)}</p></div>`;
   h += `<div><p class="k">Belastung</p><p class="v">${ev.load}</p></div></div>`;
-  if (ev.variant) h += `<button class="chip" data-act="reset" data-id="${ev.id}">Angepasst: ${VARIANTS[ev.variant]} · zurücksetzen</button>`;
-  if (isRun(ev.type) && st.s!=='done') h += `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="variant" data-v="${k}" data-id="${ev.id}">${l}</button>`).join('')}</div>`;
+  if (ev.modified) h += modBanner(ev);
+  if (isRun(ev.type) && st.s!=='done') h += variantGrid(ev);
   h += `</section>`;
   if (st.s!=='done') h += `<button class="btn ghost" data-act="unfit" data-id="${ev.id}">Heute nicht fit</button>`;
   return h;
@@ -434,6 +440,8 @@ function viewDetail(id){
   const stream = st.act && SNAP.streams[st.act.id];
   let h = `<a class="back" href="#${st.s==='done'?'woche':'heute'}">‹ Zurück</a>`;
   h += `<div style="display:flex;flex-direction:column;gap:8px"><div class="row" style="justify-content:flex-start;gap:8px"><span class="tag" style="background:var(--card)">${esc(ev.cat.name)} · ${mins(ev.dur)} min</span>${st.s==='done'?'<span class="chip" style="background:var(--lime);color:var(--bg)">Läuft.</span>':''}</div><h1>${esc(ev.name)}</h1><p class="small muted">${nice(ev.date)}</p></div>`;
+  if (ev.modified && st.s!=='done') h += modBanner(ev);
+  if (ev.steps.length && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (ev.steps.length){
     h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Helle Linie: deine tatsächliche Pace</p>':''}</section>`;
   }
@@ -755,6 +763,16 @@ function fitWorkout(t, minutes){
   steps.push(...main);
   if (extra >= 300) steps.push(EASY(Math.round(extra/60), 'Locker'));
   if (t.cd) steps.push(Object.assign(CD(0), { duration: Math.round(cd/30)*30 }));
+  // Passt selbst die Einstiegsstufe nicht, werden die lockeren Teile gestaucht (harte bleiben gleich)
+  let flat = flatSteps(steps);
+  const total = flat.reduce((a,x)=>a+x.duration,0);
+  if (total > target + 60){
+    const easySum = flat.filter(x => stepPct(x) < 90 && x.duration >= 120).reduce((a,x)=>a+x.duration,0);
+    const hardSum = total - easySum;
+    const f = Math.max(0.3, (target - hardSum) / Math.max(1, easySum));
+    flat = flat.map(x => (stepPct(x) < 90 && x.duration >= 120) ? Object.assign({}, x, { duration: Math.max(60, Math.round(x.duration * f / 30) * 30) }) : x);
+    return { steps: flat, level: best };
+  }
   return { steps, level:best };
 }
 // Für später: Schritte als Intervals-Text (so landen sie auf der Uhr)
@@ -1356,7 +1374,7 @@ function pushMove(id, d){ sync('Das Verschieben', () => api('PUT', `/api/events/
 function pushDelete(id){ sync('Das Streichen', () => api('DELETE', `/api/events/${id}`)); }
 function pushShape(id){
   const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw || isStrength(raw.type)) return;
-  const changed = ST.variants[id] || ST.comp[id];
+  const changed = ST.variants[id] || ST.comp[id] || (ST.swaps && ST.swaps[id]);
   if (!changed){
     const o = ST.orig[id]; if (!o) return;
     sync('Das Zurücksetzen', async () => { await api('PUT', `/api/events/${id}`, { name:o.name, description:o.description || stepsToText(flatten(o.workout_doc && o.workout_doc.steps)) }); delete ST.orig[id]; save(); });
@@ -1365,8 +1383,9 @@ function pushShape(id){
   if (!ST.orig[id]) { ST.orig[id] = { name:raw.name, description:raw.description || '', workout_doc:raw.workout_doc, load:raw.icu_training_load }; save(); }
   const ev = buildEvent(raw);
   const base = cleanName(ST.orig[id].name).replace(/^On\.Track · /,'');
+  const sw = ST.swaps && ST.swaps[id] && LIB.find(t => t.id === ST.swaps[id].tpl);
   const tag = ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
-  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${base}${tag}`, description: stepsToText(ev.steps) + `\n\n${OWN_MARK}` }));
+  sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${sw ? sw.name : base}${tag}`, description: stepsToText(ev.steps) + `\n\n${OWN_MARK}` }));
 }
 function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
 function pushCreate(gen, day){
@@ -1453,6 +1472,99 @@ function runScrub(el, clientX){
   tip.innerHTML = `<b>${p.d===TODAY?'Heute':`${WD[wd(p.d)]}, ${shortD(p.d)}`}${p.future?' (Plan)':''}</b><span>Laufbelastung <b>${Math.round(p.acute)}</b></span><span>Soll <b>${Math.round(p.lo)}–${Math.round(p.hi)}</b></span><span style="color:${inZone?'#2E8B3E':'#C0392B'};font-weight:700">${inZone?'im Soll':p.acute<p.lo?'darunter':'darüber'}</span>`;
 }
 
+
+/* ---------- Anpassen mit Vorschau, Tauschen für geplante Einheiten, Original wiederherstellen ---------- */
+function swapRow(ev){
+  return `<div class="row"><span class="small muted">${ev.modified ? 'Angepasst' : esc(sourceOf(ev.raw))}</span><button class="chip" data-act="pswap" data-id="${ev.id}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4"></path><path d="M3 8h14"></path><path d="M17 20l4-4-4-4"></path><path d="M21 16H7"></path></svg>Tauschen</button></div>`;
+}
+function variantGrid(ev){
+  return `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="vprev" data-v="${k}" data-id="${ev.id}">${l}${ev.variant===k?' ✓':''}</button>`).join('')}</div>`;
+}
+function modBanner(ev){
+  const what = ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : `angepasst: ${VARIANTS[ev.variant]}`;
+  return `<div class="note" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Diese Einheit ist <b>${what}</b>.</span><button class="chip" data-act="restore" data-id="${ev.id}" style="flex:none">Zurücksetzen</button></div>`;
+}
+function corePace(steps){
+  const hard = steps.filter(s => s.pace && stepPct(s) >= 75);
+  if (!hard.length) return '';
+  const top = hard.reduce((a,s)=>stepPct(s)>stepPct(a)?s:a, hard[0]);
+  return `${pctToPace(top.pace.end)}–${pctToPace(top.pace.start)}`;
+}
+// Änderung probehalber berechnen, ohne sie zu speichern
+function tryChange(id, change){
+  const keep = { v: ST.variants[id], s: ST.swaps[id] };
+  if ('variant' in change){ if (change.variant) ST.variants[id] = change.variant; else delete ST.variants[id]; }
+  if ('swap' in change){ if (change.swap) ST.swaps[id] = change.swap; else delete ST.swaps[id]; if (change.swap) delete ST.variants[id]; }
+  const raw = SNAP.events.find(e => String(e.id) === String(id));
+  const after = buildEvent(raw);
+  if (keep.v) ST.variants[id] = keep.v; else delete ST.variants[id];
+  if (keep.s) ST.swaps[id] = keep.s; else delete ST.swaps[id];
+  return after;
+}
+let PENDING = null;
+function previewSheet(id, change, title){
+  const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw) return;
+  const now = buildEvent(raw), next = tryChange(id, change);
+  PENDING = { id, change };
+  const arrow = (a, b) => a === b ? `<b>${a}</b>` : `${a} → <b style="color:var(--lime)">${b}</b>`;
+  let h = `<h2>${esc(title)}</h2><p class="small muted">${esc(now.name)} · ${nice(now.date)}</p>`;
+  h += `<div style="background:var(--bg);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:6px">
+    <span class="small muted">Jetzt</span>${profileSVG(now.steps,44)}
+    <span class="small" style="color:var(--lime);margin-top:6px">Danach${next.name!==now.name?` · ${esc(next.name)}`:''}</span>${profileSVG(next.steps,44)}</div>`;
+  h += `<div class="note" style="display:flex;flex-direction:column;gap:4px">
+    <span>Dauer: ${arrow(mins(now.dur)+' min', mins(next.dur)+' min')}</span>
+    <span>Belastung: ${arrow(String(now.load), String(next.load))}</span>
+    ${corePace(next.steps) ? `<span>Pace Hauptteil: ${arrow(corePace(now.steps)+' /km', corePace(next.steps)+' /km')}</span>` : ''}</div>`;
+  h += `<div class="grid2"><button class="btn ghost" data-act="pcancel">Abbrechen</button><button class="btn lime" data-act="papply">Übernehmen</button></div>`;
+  openSheet(h);
+}
+function planSwapSheet(id, cat){
+  const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw) return;
+  const ev = buildEvent(raw);
+  const curCat = ev.swapped ? LIB.find(t=>t.id===ev.swapped).cat : (CATS.find(c => c.name === ev.cat.name) || CATS[1]).key;
+  cat = cat || curCat;
+  let h = `<h2>Training tauschen</h2><p class="small muted">Alle auf ${mins(ev.baseDur)} min angepasst · ${nice(ev.date)}</p>`;
+  h += `<div style="display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px">${CATS.map(c => `<button class="chip" data-act="pswapcat" data-id="${id}" data-v="${c.key}" style="flex:none;${c.key===cat?`background:${c.col};color:var(--bg)`:'color:var(--lilac)'}">${c.name}</button>`).join('')}</div>`;
+  h += `<div class="list">`;
+  for (const t of LIB.filter(x => x.cat === cat)){
+    const cand = tryChange(id, { swap:{ tpl:t.id } });
+    const cur = ev.swapped === t.id;
+    h += `<button class="ev" data-act="pswappick" data-id="${id}" data-v="${t.id}" style="flex-direction:column;align-items:stretch;gap:8px;${cur?'outline:2px solid var(--lime)':''}">
+      <span class="row"><span class="n" style="font-weight:700">${esc(t.name)}</span><span class="small muted">${cur?'aktuell · ':''}${mins(cand.dur)} min · ${cand.load}</span></span>
+      <span style="display:block;background:var(--bg);border-radius:10px;padding:6px">${profileSVG(cand.steps,40)}</span></button>`;
+  }
+  openSheet(h + `</div>`);
+}
+function applyChange(id, change){
+  const before = compTargets();
+  if ('variant' in change){ if (change.variant) ST.variants[id] = change.variant; else delete ST.variants[id]; }
+  if ('swap' in change){ if (change.swap){ ST.swaps[id] = change.swap; delete ST.variants[id]; } else delete ST.swaps[id]; }
+  const ev = plan().find(e => String(e.id) === String(id));
+  const c = ev ? compensate(ev) : null;
+  save(); closeSheet(); render();
+  syncShapes([id, ...before, ...compTargets()]);
+  if (c) toast(`Übernommen. Ausgleich: ${WD[wd(c.tgt.date)]} ${c.tgt.name} +${mins(c.extra)} min locker`);
+  else toast('Übernommen');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const { act, id, v } = b.dataset;
+  if (act === 'vprev'){
+    const raw = SNAP.events.find(x => String(x.id) === String(id)); const cur = ST.variants[id];
+    if (cur === v){ previewSheet(id, { variant:null }, 'Zurücksetzen'); return; }
+    previewSheet(id, { variant:v }, VARIANTS[v]);
+  }
+  if (act === 'pswap') planSwapSheet(id);
+  if (act === 'pswapcat') planSwapSheet(id, v);
+  if (act === 'pswappick') previewSheet(id, { swap:{ tpl:v } }, 'Training tauschen');
+  if (act === 'pcancel'){ PENDING = null; closeSheet(); }
+  if (act === 'papply' && PENDING){ const P = PENDING; PENDING = null; applyChange(P.id, P.change); }
+  if (act === 'restore'){
+    const raw = SNAP.events.find(x => String(x.id) === String(id)); if (!raw) return;
+    if (!b.dataset.confirmed){ previewSheet(id, { variant:null, swap:null }, 'Original wiederherstellen'); return; }
+  }
+});
+
 /* ---------- Sheets ---------- */
 function openSheet(html){ closeSheet(); const d=document.createElement('div'); d.className='scrim'; d.id='scrim'; d.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><span class="grab"></span>${html}</div>`; d.addEventListener('click',e=>{ if(e.target===d) closeSheet(); }); document.body.appendChild(d); }
 function closeSheet(){ const s=$('#scrim'); if(s) s.remove(); }
@@ -1465,7 +1577,8 @@ function menuSheet(id){
   h += `<button class="btn" data-act="detail" data-id="${ev.id}">Details ansehen</button>`;
   if (st.s!=='done' && ev.date>=TODAY){
     h += `<button class="btn" data-act="move" data-id="${ev.id}">Verschieben</button>`;
-    if (isRun(ev.type)) h += `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="variant" data-v="${k}" data-id="${ev.id}">${l}</button>`).join('')}</div>`;
+    if (isRun(ev.type)){ h += `<button class="btn" data-act="pswap" data-id="${ev.id}">Training tauschen</button>`; h += variantGrid(ev); }
+    if (ev.modified) h += `<button class="btn ghost" data-act="restore" data-id="${ev.id}">Original wiederherstellen</button>`;
     h += `<button class="btn ghost" data-act="remove" data-id="${ev.id}">Streichen</button>`;
   }
   openSheet(h);
