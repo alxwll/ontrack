@@ -880,8 +880,42 @@ function runMinutesPerWeek(){
   return Math.round(tot / 60 / 4);
 }
 const PEAK_MIN = { '5k':210, '10k':240, 'hm':300, 'm':390 };
-const DAYF = { 3:0.8, 4:0.9, 5:1, 6:1.1 };
+const DAYF = { 2:0.7, 3:0.8, 4:0.9, 5:1, 6:1.1 };
 const LONG = { '5k':[50,80], '10k':[60,95], 'hm':[70,120], 'm':[90,180] };
+const WD7 = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+// Lauftage verteilen: alle Kombinationen durchprobieren, harte Tage nie direkt nebeneinander oder neben dem langen Lauf
+function assignDays(sessions, anchor, raceWeek){
+  const anc = sessions.find(s => s.anchor), rest = sessions.filter(s => !s.anchor);
+  const hard = rest.filter(s => s.hard), easy = rest.filter(s => !s.hard);
+  const pool = [0,1,2,3,4,5,6].filter(d => d !== anchor && (!raceWeek || d < anchor));
+  const need = Math.min(rest.length, pool.length);
+  const dist = (a,b) => { const x = Math.abs(a-b); return raceWeek ? x : Math.min(x, 7-x); };
+  let best = null;
+  const combos = (arr, k, start = 0, cur = []) => { if (cur.length === k) return [cur.slice()]; let o = []; for (let i = start; i < arr.length; i++){ cur.push(arr[i]); o = o.concat(combos(arr, k, i+1, cur)); cur.pop(); } return o; };
+  const nH = Math.min(hard.length, need);
+  for (const set of combos(pool, need)){
+    for (const hs of combos(set, nH)){
+      let sc = 0;
+      const all = [anchor, ...set].sort((x,y)=>x-y);
+      for (let i = 0; i < all.length - (raceWeek ? 1 : 0); i++){ const g = dist(all[i], all[(i+1) % all.length]); if (g === 1) sc += 1; }
+      hs.forEach((h, i) => {
+        if (raceWeek) sc += Math.abs(anchor - 2 - h) * 3;
+        else if (dist(h, anchor) === 1) sc += 10;
+        hs.slice(i+1).forEach(h2 => { if (dist(h, h2) === 1) sc += 10; });
+      });
+      if (!best || sc < best.sc) best = { sc, set, hs };
+    }
+  }
+  if (anc) anc.di = anchor;
+  if (best){
+    const hs = [...best.hs], es = best.set.filter(d => !hs.includes(d));
+    hard.slice(0, nH).forEach(s => s.di = hs.shift());
+    [...hard.slice(nH), ...easy].forEach(s => { s.di = es.length ? es.shift() : null; });
+  }
+  for (let i = sessions.length - 1; i >= 0; i--) if (sessions[i].di == null) sessions.splice(i, 1);
+  sessions.forEach(s => s.day = WD7[s.di]);
+  sessions.sort((a,b) => a.di - b.di);
+}
 function buildPlan(g){
   const d = DISTS[g.dist];
   const start = addDays(monday(TODAY), 7); // Start: nächster Montag
@@ -901,7 +935,9 @@ function buildPlan(g){
   if (growth > 0.12) warn.push({ lvl:'r', t:`Zu steil: Dein Laufumfang müsste um ${Math.round(growth*100)} % pro Woche steigen, von ${fmtH(startMin)} auf ${fmtH(peak)}. Sicher sind etwa 10 %. Ich deckele das, du startest dann mit weniger Umfang ins Rennen als ideal.` });
   else if (growth > 0.10) warn.push({ lvl:'y', t:`Ambitioniert: ${Math.round(growth*100)} % mehr Laufumfang pro Woche liegen knapp über den empfohlenen 10 %. Achte besonders auf Erholung.` });
   growth = Math.min(growth, 0.10);
-  if (g.dist === 'm' && g.days < 4) warn.push({ lvl:'y', t:'Für einen Marathon sind vier oder mehr Lauftage pro Woche deutlich besser. Mit drei Tagen wird der lange Lauf sehr lang.' });
+  if (g.dist === 'm' && g.days === 2) warn.push({ lvl:'r', t:'Zwei Lauftage reichen für einen Marathon nicht sicher aus. Der lange Lauf müsste fast den ganzen Umfang tragen, das Verletzungsrisiko steigt deutlich. Nimm mindestens einen dritten Tag dazu.' });
+  else if (g.dist === 'm' && g.days < 4) warn.push({ lvl:'y', t:'Für einen Marathon sind vier oder mehr Lauftage pro Woche deutlich besser. Mit drei Tagen wird der lange Lauf sehr lang.' });
+  if (g.dist === 'hm' && g.days === 2) warn.push({ lvl:'y', t:'Mit zwei Lauftagen kommst du gut ins Ziel, für eine Zielzeit fehlt aber Umfang. Rad oder Kraft an anderen Tagen helfen, die Grundlage aufzubauen.' });
   const pred = predictTime(g.dist), goal = parseTime(g.time);
   if (goal){
     const gap = (pred - goal) / pred * 100;
@@ -931,8 +967,8 @@ function buildPlan(g){
     if (phase === 'Aufbau') q.push(pickId(d.keyB, i), pickId(d.keyA, i));
     if (phase === 'Spitze') q.push(pickId(d.keyB, i), g.dist==='m'||g.dist==='hm' ? 'WET-3' : 'WET-2');
     if (phase === 'Tapering') q.push(isRace ? 'WET-1' : pickId(d.keyB, i));
-    const nQ = Math.min(q.length, g.days - 2 + (isRace ? 1 : 0));
-    const qSessions = q.slice(0, nQ).map(id => { const t = LIB.find(x=>x.id===id); const st_ = libWorkout(t, recovery || phase==='Tapering' ? 0 : 1); return { name:t.name, min:mins(durOf(st_)), load:loadOf(st_), col:CATS.find(c=>c.key===t.cat).col }; });
+    const nQ = Math.min(q.length, Math.max(1, g.days - 2) + (isRace && g.days > 2 ? 1 : 0));
+    const qSessions = q.slice(0, nQ).map(id => { const t = LIB.find(x=>x.id===id); const st_ = libWorkout(t, recovery || phase==='Tapering' ? 0 : 1); return { name:t.name, min:mins(durOf(st_)), load:loadOf(st_), col:CATS.find(c=>c.key===t.cat).col, hard:t.cat!=='erholung'&&t.cat!=='grundlage' }; });
     const sessions = [...qSessions];
     let rest = wMin - qSessions.reduce((a,s)=>a+s.min,0);
     if (!isRace){
@@ -941,8 +977,8 @@ function buildPlan(g){
       let longMin = lo + (hi-lo) * prog;
       if (recovery) longMin *= 0.8;
       if (phase==='Tapering') longMin = lo * 0.8;
-      longMin = Math.round(Math.min(longMin, wMin * 0.42) / 5) * 5;
-      sessions.push({ name:'Langer Lauf', min:longMin, load:Math.round(longMin*perMinEasy), col:'#FFD84D', day:g.long });
+      longMin = Math.round(Math.min(longMin, wMin * (g.days === 2 ? 0.6 : 0.42)) / 5) * 5;
+      sessions.push({ name:'Langer Lauf', min:longMin, load:Math.round(longMin*perMinEasy), col:'#FFD84D', anchor:true });
       rest -= longMin;
     }
     const nEasy = g.days - sessions.length - (isRace ? 1 : 0);
@@ -950,7 +986,8 @@ function buildPlan(g){
       const m = Math.max(30, Math.round(rest / nEasy / 5) * 5);
       sessions.push({ name:'Lockerer Lauf', min:m, load:Math.round(m*perMinEasy), col:'#FFD84D' });
     }
-    if (isRace) sessions.push({ name:`Rennen: ${d.name}`, min:Math.round(pred/60), load:Math.round(pred/60*1.5), col:'#D7FF3D' });
+    if (isRace) sessions.push({ name:`Rennen: ${d.name}`, min:Math.round(pred/60), load:Math.round(pred/60*1.5), col:'#D7FF3D', anchor:true });
+    assignDays(sessions, isRace ? (parseD(race).getUTCDay()+6)%7 : Math.max(0, WD7.indexOf(g.long)), isRace);
     const totMin = sessions.reduce((a,s)=>a+s.min,0);
     const load = sessions.reduce((a,s)=>a+s.load,0) + other;
     const prev = ctl;
@@ -978,9 +1015,9 @@ function viewGoal(){
     <label class="small muted" style="display:flex;flex-direction:column;gap:6px">Renndatum<input type="date" name="date" value="${defDate}" min="${addDays(TODAY,14)}" style="height:48px;border-radius:14px;border:2px solid var(--line);background:var(--bg2);color:var(--text);padding:0 12px;font-family:inherit;font-size:16px"></label>
     <label class="small muted" style="display:flex;flex-direction:column;gap:6px">Zielzeit (optional)<input type="text" name="time" value="${esc(GOAL.time)}" placeholder="1:45:00" inputmode="numeric" style="height:48px;border-radius:14px;border:2px solid var(--line);background:var(--bg2);color:var(--text);padding:0 12px;font-family:inherit;font-size:16px"></label>
     <fieldset style="border:none;padding:0;margin:0"><legend class="small muted" style="margin-bottom:8px">Lauftage pro Woche</legend>
-      <div class="grid2" style="grid-template-columns:repeat(4,minmax(0,1fr))">${[3,4,5,6].map(n=>`<label class="btn${GOAL.days===n?' sel':''}" style="display:flex;align-items:center;justify-content:center"><input type="radio" name="days" value="${n}" ${GOAL.days===n?'checked':''} style="position:absolute;opacity:0">${n}</label>`).join('')}</div></fieldset>
+      <div class="grid2" style="grid-template-columns:repeat(5,minmax(0,1fr))">${[2,3,4,5,6].map(n=>`<label class="btn${GOAL.days===n?' sel':''}" style="display:flex;align-items:center;justify-content:center"><input type="radio" name="days" value="${n}" ${GOAL.days===n?'checked':''} style="position:absolute;opacity:0">${n}</label>`).join('')}</div></fieldset>
     <fieldset style="border:none;padding:0;margin:0"><legend class="small muted" style="margin-bottom:8px">Langer Lauf am</legend>
-      <div class="grid2">${['Sa','So'].map(n=>`<label class="btn${GOAL.long===n?' sel':''}" style="display:flex;align-items:center;justify-content:center"><input type="radio" name="long" value="${n}" ${GOAL.long===n?'checked':''} style="position:absolute;opacity:0">${n==='Sa'?'Samstag':'Sonntag'}</label>`).join('')}</div></fieldset>
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px">${WD7.map(n=>`<label class="btn${GOAL.long===n?' sel':''}" style="height:40px;border-radius:10px;font-size:13px;display:flex;align-items:center;justify-content:center;position:relative"><input type="radio" name="long" value="${n}" ${GOAL.long===n?'checked':''} style="position:absolute;opacity:0">${n}</label>`).join('')}</div></fieldset>
     <p class="small" id="goalerr" style="color:#FF6B6B;min-height:18px" role="alert"></p>
     <button type="submit" class="btn lime" style="height:56px;font-size:16px">Plan erstellen</button></form>`;
   h += `<p class="small muted" style="line-height:1.5">Deine aktuelle Prognose aus der Schwellenpace (${paceStr(THR)} /km): 5 km ${fmtTime(predictTime('5k'))}, 10 km ${fmtTime(predictTime('10k'))}, Halbmarathon ${fmtTime(predictTime('hm'))}, Marathon ${fmtTime(predictTime('m'))}.</p>`;
@@ -1010,7 +1047,7 @@ function viewPlanPreview(){
   for (const w of p.weeks){
     h += `<div class="wday"><p class="lbl">Woche ${w.i+1} · ${nice(w.wStart)} · <span style="color:${PH[w.phase]}">${w.phase}${w.recovery?' (Erholungswoche)':''}</span></p>
       <div style="background:var(--bg2);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
-      ${w.sessions.map(s=>`<div class="row small"><span style="display:flex;align-items:center;gap:8px"><i style="width:6px;height:18px;border-radius:3px;background:${s.col};display:inline-block"></i>${esc(s.name)}${s.day?` · ${s.day}`:''}</span><span class="muted">${s.min} min</span></div>`).join('')}
+      ${w.sessions.map(s=>`<div class="row small"><span style="display:flex;align-items:center;gap:8px"><i style="width:6px;height:18px;border-radius:3px;background:${s.col};display:inline-block"></i>${s.day?`<b style="width:22px">${s.day}</b>`:''}${esc(s.name)}</span><span class="muted">${s.min} min</span></div>`).join('')}
       <div class="row small muted" style="border-top:1px solid var(--line);padding-top:6px"><span>Laufzeit ${Math.floor(w.totMin/60)}:${d2(w.totMin%60)} h</span><span>Belastung gesamt ${w.load}</span></div></div></div>`;
   }
   h += `</section><button class="btn lime" data-act="planok" style="height:56px">Plan übernehmen</button>
