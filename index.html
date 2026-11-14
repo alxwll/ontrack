@@ -543,8 +543,12 @@ const CHECK = [
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 function readiness(){
   const f = formInfo();
-  const t = SNAP.wellness.find(x => x.id === TODAY) || {};
-  const prior = SNAP.wellness.filter(x => x.id < TODAY && x.id >= addDays(TODAY, -30));
+  // Nachtwerte: heute, sonst der Vortag (Garmin/Intervals legen die letzte Nacht oft auf den Vortag;
+  // ein Ruhepuls ohne Nachtdaten ist meist nur ein vorläufiger Tageswert)
+  const night = x => x && (x.hrv || x.sleepSecs);
+  const today = SNAP.wellness.find(x => x.id === TODAY), yest = SNAP.wellness.find(x => x.id === addDays(TODAY, -1));
+  const t = night(today) ? today : night(yest) ? yest : {};
+  const prior = SNAP.wellness.filter(x => x.id < t.id && x.id >= addDays(TODAY, -31));
   const base = k => { const v = prior.map(x => x[k]).filter(Boolean); return v.length >= 5 ? v.reduce((a,b)=>a+b,0) / v.length : null; };
   let sc = 70; const why = [];
   const hb = base('hrv');
@@ -559,7 +563,8 @@ function readiness(){
   }
   if (t.sleepScore){
     sc += clampN((t.sleepScore - 75) / 2.5, -12, 6);
-    if (t.sleepScore < 65) why.push({ t:`Schlafwert ${t.sleepScore}`, neg:true }); else if (t.sleepScore >= 85) why.push({ t:`Schlafwert ${t.sleepScore}`, neg:false });
+    if (t.sleepScore < 65) why.push({ t:`Schlafwert ${Math.round(t.sleepScore)}`, neg:true }); else if (t.sleepScore >= 85) why.push({ t:`Schlafwert ${Math.round(t.sleepScore)}`, neg:false });
+    if (t.sleepSecs && t.sleepSecs < 7*3600){ sc -= t.sleepSecs < 6*3600 ? 6 : 3; why.push({ t:`${(t.sleepSecs/3600).toFixed(1).replace('.',',')} h Schlaf`, neg:true }); }
   } else if (t.sleepSecs){
     const h = t.sleepSecs / 3600, hs = `${h.toFixed(1).replace('.',',')} h Schlaf`;
     if (h < 6){ sc -= 12; why.push({ t:hs, neg:true }); } else if (h < 7){ sc -= 5; why.push({ t:hs, neg:true }); } else if (h >= 8){ sc += 4; why.push({ t:hs, neg:false }); }
