@@ -599,8 +599,16 @@ function buildPlan(g){
       rest -= longMin;
     }
     const nEasy = g.days - sessions.length - (isRace ? 1 : 0);
+    // Lockere Läufe nie länger als ¾ des langen Laufs (max. 75 min); übriger Umfang geht in den langen Lauf, bis zu dessen Obergrenze
+    const longS = sessions.find(x => x.name === 'Langer Lauf');
+    let easyCap = longS ? Math.min(75, longS.min * 0.75) : 75;
+    if (longS && !recovery && phase !== 'Tapering' && nEasy > 0 && rest / nEasy > easyCap){
+      const extra = Math.min(rest - easyCap * nEasy, Math.max(0, Math.min(LONG[g.dist][1], longS.min + 15) - longS.min));
+      longS.min = Math.round((longS.min + extra) / 5) * 5; longS.load = Math.round(longS.min * perMinEasy);
+      rest -= extra; easyCap = Math.min(75, longS.min * 0.75);
+    }
     for (let k = 0; k < nEasy; k++){
-      const m = Math.max(30, Math.round(rest / nEasy / 5) * 5);
+      const m = Math.max(30, Math.round(Math.min(rest / nEasy, easyCap) / 5) * 5);
       sessions.push({ name:'Lockerer Lauf', min:m, load:Math.round(m*perMinEasy), col:'#FFD84D' });
     }
     if (isRace) sessions.push({ name:`Rennen: ${d.name}`, min:Math.round(pred/60), load:Math.round(pred/60*1.5), col:'#D7FF3D', anchor:true });
