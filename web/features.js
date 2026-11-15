@@ -82,6 +82,8 @@ function readySentence(r, todays){
   const ev = todays.find(e => statusOf(e).s !== 'done');
   const hard = ev && ev.cat.hard && !ev.variant;
   const because = '';
+  const testEv = todays.find(e => statusOf(e).s !== 'done' && /test/i.test(e.name));
+  if (testEv && (r.zone.key === 'low' || r.zone.key === 'rest')) return 'Kein Tag für einen Test: Mit dieser Bereitschaft misst du nicht dein echtes Maximum. Verschieb ihn um ein, zwei Tage.';
   switch (r.zone.key){
     case 'rest': return because + 'Dein Körper braucht heute Ruhe. ' + (hard ? 'Mach die leichte Variante oder lass die Einheit ausfallen.' : ev ? 'Wenn du läufst, dann kurz und ganz locker.' : 'Gut, dass heute frei ist.');
     case 'low':  return because + 'Heute ist kein Tag für Vollgas. ' + (hard ? 'Ich würde die Einheit leichter machen.' : ev ? 'Locker laufen passt, Tempo bewusst rausnehmen.' : 'Ein ruhiger Tag tut dir gut.');
@@ -337,6 +339,8 @@ const LIB = [
   { id:'VO2-6', cat:'vo2', name:'90-Sekunden-Intervalle', desc:'Kurze, harte Intervalle mit gleich langer Pause. Gut als Einstieg in VO2max-Training.', wu:15, cd:10, main:l=>[rep([6,8,10][l],[st(1.5,106,112,'VO2max'), JOG(1.5)])] },
   { id:'TES-2', cat:'test', name:'Critical-Speed-Test', desc:'Zwei Läufe, so schnell wie möglich: 3 und 12 Minuten, dazwischen 15 Minuten locker. Aus beiden Ergebnissen lässt sich deine Schwelle genau bestimmen.', wu:15, cd:10, main:l=>[st(3,110,120,'Test 3 min'), EASY(15,'Locker erholen'), st(12,102,108,'Test 12 min')] },
   { id:'TES-3', cat:'test', name:'5-km-Test', desc:'5 Kilometer so schnell wie gleichmäßig möglich. Die Dauer richtet sich nach deiner aktuellen Prognose.', wu:15, cd:10, main:l=>[st(Math.round(5000/(THR*1.06)/60*10)/10, 104, 110, '5 km Test')] },
+  { id:'TES-4', cat:'test', name:'Max-HF-Test', desc:'So findest du deine echte maximale Herzfrequenz, ohne Labor. Vor dem Start: ausgeruht, ohne harte Einheit am Vortag, Ruhepuls und HRV im Normalbereich, kein Alkohol. Mit Brustgurt messen, nicht am Handgelenk. Die drei Belastungen am besten an einer Steigung mit 5–8 % laufen, die 2–3 Minuten lang ist. Intervall 1 bei etwa 85 % deiner geschätzten HFmax (kurze Sätze gehen noch), Intervall 2 bei 90 bis 95 % (nur noch einzelne Wörter). Im Finale moderat starten und stetig steigern, die letzten 30–60 Sekunden volle Pulle. Deine HFmax ist der höchste saubere Pulswert aus dem Finale. Unplausible Einzelspitzen ignorieren. Bei Herz-Kreislauf-Vorerkrankungen den Test vorher ärztlich abklären.', wu:11, cd:10,
+    main:l=>[rep(4,[st(1/3,110,118,'Steigerung'), JOG(2/3)]), st(3,92,96,'Intervall 1 · zügig bergauf'), Object.assign(JOG(2),{text:'Locker runtertraben oder gehen'}), st(3,100,104,'Intervall 2 · deutlich schneller'), Object.assign(JOG(2),{text:'Locker runtertraben oder gehen'}), st(3,98,118,'Finale · stetig steigern bis All-out',{ramp:true})] },
   { id:'TES-1', cat:'test', name:'30-min-Test', desc:'30 Minuten so schnell wie gleichmäßig möglich. Daraus ergibt sich deine Schwellenpace.', wu:15, cd:10, main:l=>[st(30, 100, 106, 'Test')] },
 ];
 
@@ -390,7 +394,7 @@ function fitWorkout(t, minutes){
 }
 // Für später: Schritte als Intervals-Text (so landen sie auf der Uhr)
 function toIntervalsText(steps){
-  const one = s => `- ${s.duration%60 ? s.duration+'s' : (s.duration/60)+'m'} ${Math.round(s.pace.start)}-${Math.round(s.pace.end)}% Pace${s.text?` ${s.text}`:''}`;
+  const one = s => `- ${s.duration%60 ? s.duration+'s' : (s.duration/60)+'m'} ${s.ramp ? 'ramp ' : ''}${Math.round(s.pace.start)}-${Math.round(s.pace.end)}% Pace${s.text?` ${s.text.replace(/-/g,' ')}`:''}`;
   return steps.map(s => s.reps ? `\n${s.reps}x\n${s.steps.map(x=>x.reps?toIntervalsText([x]):one(x)).join('\n')}\n` : one(s)).join('\n');
 }
 function dotsHTML(n, col){ return `<span aria-label="Intensität ${n} von 5" style="display:inline-flex;gap:3px">${[1,2,3,4,5].map(i=>`<i style="width:7px;height:7px;border-radius:99px;background:${i<=n?col:'var(--line)'};display:inline-block"></i>`).join('')}</span>`; }
@@ -447,6 +451,7 @@ function viewGenerated(){
   if (GEN.mode === 'lib'){
     h += `<div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr))">${[0,1,2].map(l=>`<button class="btn${GEN.level===l?' sel':''}" data-act="lvl" data-v="${l}">${LEVELS[['intro','standard','pro'][l]]}</button>`).join('')}</div>`;
   }
+  if (t.cat === 'test'){ const r = readiness(); if (r.score != null && (r.zone.key === 'low' || r.zone.key === 'rest')) h += `<p class="note" style="color:var(--text);border-left:4px solid #FF8A1F">⚠️ Deine Bereitschaft ist heute <b style="color:${r.zone.col}">${r.zone.name}</b>. Damit erreichst du kaum deinen echten Bestwert. Mach den Test lieber an einem frischen Tag.</p>`; }
   h += `<p class="note">${esc(t.desc)}</p>`;
   h += `<section class="steps"><h2 style="margin-bottom:6px">Ablauf</h2>`;
   for (const s of compress(steps)) h += stepRow(s);

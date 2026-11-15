@@ -316,6 +316,12 @@ function profileSVG(steps, h, opts={}){
     const w = (s.duration/total)*W, p = stepPct(s), hh = hOf(p), z = zoneOf(p);
     const hollow = z === ZONES[0];
     const ww = Math.max(1,w-gap);
+    if (s.ramp && s.pace && !hollow){
+      // Rampe: Fläche steigt von Start- auf Endpace, Farbe der Zielzone
+      const h0 = hOf(s.pace.start), h1 = hOf(s.pace.end), zc = zoneOf(Math.max(s.pace.start, s.pace.end)).hex;
+      rects += `<path d="M${x.toFixed(1)},${H} L${x.toFixed(1)},${(H-h0).toFixed(1)} L${(x+ww).toFixed(1)},${(H-h1).toFixed(1)} L${(x+ww).toFixed(1)},${H} Z" fill="${zc}"${opts.faded?' fill-opacity="0.8"':''} stroke-linejoin="round"></path>`;
+      x += w; continue;
+    }
     rects += hollow
       ? `<rect x="${(x+1).toFixed(1)}" y="${(H-hh+1).toFixed(1)}" width="${Math.max(1,ww-2).toFixed(1)}" height="${(hh-2).toFixed(1)}" rx="4" fill="${z.hex}" fill-opacity="${opts.faded?0.1:0.2}" stroke="${z.hex}" stroke-width="2" vector-effect="non-scaling-stroke"${opts.faded?' stroke-opacity="0.5"':''}></rect>`
       : `<rect x="${x.toFixed(1)}" y="${(H-hh).toFixed(1)}" width="${ww.toFixed(1)}" height="${hh.toFixed(1)}" rx="4" fill="${z.hex}"${opts.faded?' fill-opacity="0.8"':''}></rect>`;
