@@ -104,7 +104,7 @@ function readinessSection(todays){
     <div class="row small muted" style="margin-top:-6px"><span>platt</span><span>startklar</span></div>`}`;
   if (r.why.length) h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${r.why.map(w => pill(w.t, w.neg ? '#FF8A1F' : 'var(--lime)')).join('')}</div>`;
   h += `<p style="color:var(--text);font-size:15px;line-height:1.45">${r.score == null ? '' : esc(readySentence(r, todays))}${r.hasData ? '' : '<span class="muted">Von deiner Uhr sind noch keine Werte der letzten Nacht da. Synchronisiere sie in Garmin Connect (Bluetooth an) und lade die App neu.</span>'}</p>`;
-  if (showEase) h += `<button class="btn lime" data-act="vprev" data-v="leichter" data-id="${ev.id}">Heutige Einheit leichter machen</button>`;
+  if (showEase) h += `<button class="btn lime" data-act="adjust" data-id="${ev.id}">Heutige Einheit anpassen</button>`;
   // Check-in
   const ci = r.ci;
   if (!ci || ST.ciOpen){
@@ -356,10 +356,10 @@ function libWorkout(t, l = 1, scaleWu = 1){
 const durOf = steps => flatSteps(steps).reduce((a,s)=>a+(s.duration||0),0);
 const loadOf = steps => Math.round(estLoad(flatSteps(steps)));
 // Workout auf eine Wunschdauer bringen: Stufe wählen, dann Ein-/Auslaufen bzw. Grundlage anpassen
-function fitWorkout(t, minutes){
+function fitWorkout(t, minutes, maxLvl = 2){
   const target = minutes * 60;
   let best = null;
-  for (const l of [2,1,0]){
+  for (const l of [2,1,0].filter(x => x <= maxLvl)){
     const core = durOf(t.main(l));
     const minWrap = ((t.wu ? 10 : 0) + (t.cd ? 5 : 0)) * 60;
     if (core + minWrap <= target + 60 || l === 0){ best = l; break; }
@@ -1041,7 +1041,7 @@ function pushMove(id, d){ sync('Das Verschieben', () => api('PUT', `/api/events/
 function pushDelete(id){ sync('Das Streichen', () => api('DELETE', `/api/events/${id}`)); }
 function pushShape(id){
   const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw || isStrength(raw.type)) return;
-  const changed = ST.variants[id] || ST.comp[id] || (ST.swaps && ST.swaps[id]);
+  const changed = ST.variants[id] || ST.comp[id] || (ST.swaps && ST.swaps[id]) || (ST.time && ST.time[id]);
   if (!changed){
     const o = ST.orig[id]; if (!o) return;
     sync('Das Zurücksetzen', async () => { await api('PUT', `/api/events/${id}`, { name:o.name, description:o.description || stepsToText(flatten(o.workout_doc && o.workout_doc.steps)) }); delete ST.orig[id]; save(); });
@@ -1051,7 +1051,7 @@ function pushShape(id){
   const ev = buildEvent(raw);
   const base = cleanName(ST.orig[id].name).replace(/^On\.Track · /,'');
   const sw = ST.swaps && ST.swaps[id] && LIB.find(t => t.id === ST.swaps[id].tpl);
-  const tag = ev.eased ? ` (statt ${base})` : ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : ST.comp[id] ? ' (Ausgleich)' : '';
+  const tag = (ev.eased ? ` (statt ${base})` : ST.variants[id] ? ` (${VARIANTS[ST.variants[id]]})` : sw ? ` (statt ${base})` : ST.comp[id] ? ' (Ausgleich)' : '') + (ev.timed ? ` · ${ev.timed} min` : '');
   sync('Die Anpassung', () => api('PUT', `/api/events/${id}`, { name:`On.Track · ${ev.eased || (sw ? sw.name : base)}${tag}`, description: stepsToText(ev.steps) + `\n\n${OWN_MARK}` }));
 }
 function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
@@ -1160,10 +1160,81 @@ function swapRow(ev){
   return `<div class="row"><span class="small muted">${ev.modified ? 'Angepasst' : esc(sourceOf(ev.raw))}</span><button class="chip" data-act="pswap" data-id="${ev.id}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4"></path><path d="M3 8h14"></path><path d="M17 20l4-4-4-4"></path><path d="M21 16H7"></path></svg>Tauschen</button></div>`;
 }
 function variantGrid(ev){
-  return `<div class="grid2">${Object.entries(VARIANTS).map(([k,l])=>`<button class="btn${ev.variant===k?' sel':''}" data-act="vprev" data-v="${k}" data-id="${ev.id}">${l}${ev.variant===k?' ✓':''}</button>`).join('')}</div>`;
+  return `<button class="btn" data-act="adjust" data-id="${ev.id}">Heute anpassen: leichter, härter, kürzer</button>`;
 }
+/* ---------- Heute anpassen: echte Alternativen (leichter, gleichwertig, härter) plus Zeit ---------- */
+const CAT_LADDER = ['erholung','grundlage','tempo','schwelle','vo2'];
+const ZONE_CAT = { Erholung:'erholung', Locker:'grundlage', Tempo:'tempo', Schwelle:'schwelle', VO2max:'vo2' };
+let ADJ = null;
+function adjOptions(id){
+  const o = tryChange(id, { variant:null, swap:null, time:null });
+  const M = Math.max(20, mins(o.dur)), L0 = Math.max(10, o.load);
+  const cur = ZONE_CAT[o.cat.name] || 'grundlage', ci = CAT_LADDER.indexOf(cur);
+  const isLong = M >= 75 || /lang/i.test(o.name);
+  const cand = (cats, lvl) => LIB.filter(t => cats.includes(t.cat) && t.cat !== 'test' && t.cat !== 'wettkampf' && t.name !== o.name && (isLong || !/lang/i.test(t.name))).map(t => {
+    const s = flatSteps(fitWorkout(t, M, lvl).steps); return { t, lvl, steps:s, load:loadOf(s), dur:durOf(s) }; });
+  const near = (pool, goal) => pool.sort((a,b) => Math.abs(a.load-goal) - Math.abs(b.load-goal))[0] || null;
+  const r = readiness();
+  let easy;
+  if (r.score != null && r.zone.key === 'rest' && !isLong) easy = near(cand(['erholung','grundlage'], 1).filter(x => x.load < L0 * 0.9), L0 * 0.5);
+  else if (isLong) easy = near(cand(['grundlage'], 1).filter(x => x.load <= L0 * 0.9), L0 * 0.8);
+  else {
+    let pool = cand([cur], 0).filter(x => x.load <= L0 * 0.85);
+    if (!pool.length && ci > 0) pool = cand([CAT_LADDER[ci-1]], 1).filter(x => x.load <= L0 * 0.85);
+    if (!pool.length) pool = cand(['erholung'], 1).filter(x => x.load <= L0 * 0.9);
+    easy = near(pool, L0 * 0.7);
+  }
+  if (!easy) easy = near(cand(['grundlage','erholung'], 1).filter(x => x.load < L0 * 0.95), L0 * 0.8);
+  const sib = cur === 'schwelle' ? ['schwelle','berg'] : cur === 'vo2' ? ['vo2','speed'] : [cur];
+  const same = near(cand(sib, 1).filter(x => Math.abs(x.load - L0) <= L0 * 0.2), L0) || near(cand(sib, 1), L0);
+  let pool = cand([cur], 2).filter(x => x.load >= L0 * 1.08);
+  if (!pool.length && ci < CAT_LADDER.length - 1) pool = cand([CAT_LADDER[ci+1]], 1).filter(x => x.load >= L0 * 1.05);
+  if (!pool.length) pool = cand([cur, CAT_LADDER[Math.min(ci+1, CAT_LADDER.length-1)]], 2).filter(x => x.load > L0 * 1.03);
+  const hard = near(pool, L0 * 1.2);
+  const rec = r.score == null ? null : (r.zone.key === 'low' || r.zone.key === 'rest') ? 'leichter' : r.zone.key === 'go' && hard ? 'haerter' : null;
+  return { o, M, L0, rec, opts: [['leichter','Leichter',easy], ['gleich','Gleichwertig',same], ['haerter','Härter',hard]].filter(x => x[2]) };
+}
+function adjustSheet(id){
+  if (!ADJ || ADJ.id !== id){
+    const cur = ST.swaps[id], A = adjOptions(id);
+    ADJ = { id, A, pick: cur ? (A.opts.find(x => x[2].t.id === cur.tpl) || [null])[0] : null, time: (ST.time && ST.time[id]) || null };
+  }
+  const { A } = ADJ, pct = l => { const d = Math.round((l / A.L0 - 1) * 100); return Math.abs(d) < 5 ? '±0 %' : `<span style="color:${d<0?'var(--lime)':'#FF8A1F'}">${d>0?'+':''}${d} %</span>`; };
+  let h = `<h2>Heute anpassen</h2><p class="small muted">Original: ${esc(A.o.name)} · ${mins(A.o.dur)} min · Belastung ${A.o.load}</p>`;
+  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:4px">INTENSITÄT</p>`;
+  for (const [k, label, x] of A.opts){
+    const sel = ADJ.pick === k;
+    h += `<button class="ev" data-act="adjpick" data-v="${k}" style="flex-direction:column;align-items:stretch;gap:8px;background:rgba(26,8,64,.45);${sel?'outline:2px solid var(--lime)':''}">
+      <span class="row"><b>${label}</b>${A.rec === k ? '<span class="small" style="background:var(--lime);color:var(--bg);padding:2px 8px;border-radius:99px;font-weight:700">Empfohlen</span>' : sel ? '<span class="small" style="color:var(--lime)">✓ gewählt</span>' : ''}</span>
+      <span class="row"><span>${esc(x.t.name)}</span><span class="small muted">${mins(x.dur)} min · ${x.load} · ${pct(x.load)}</span></span>
+      <span style="display:block;background:var(--bg);border-radius:10px;padding:6px">${profileSVG(x.steps,36)}</span></button>`;
+  }
+  if (ADJ.pick) h += `<button class="chip" data-act="adjpick" data-v="" style="align-self:flex-start;color:var(--lilac)">Original-Training behalten</button>`;
+  // Zeit-Chips: nur Stufen, die wirklich etwas ändern (der Kern setzt eine Untergrenze)
+  const x0 = ADJ.pick && A.opts.find(o => o[0] === ADJ.pick), sw0 = x0 ? { tpl:x0[2].t.id, lvl:x0[2].lvl } : null;
+  const M = A.M, seen = new Set(), times = [null];
+  for (const t of [45,30,20].filter(t => t < M - 4)){ const d = mins(tryChange(id, { variant:null, swap:sw0, time:t }).dur); if (!seen.has(d) && d < M - 3){ seen.add(d); times.push(t); } }
+  times.push(M + 15);
+  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:8px">ZEIT</p>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${times.map(t => `<button class="chip" data-act="adjtime" data-v="${t ?? ''}" style="${ADJ.time === t ? 'background:var(--lime);color:var(--bg)' : 'color:var(--lilac)'}">${t == null ? 'Original' : t > M ? '+15′' : t + '′'}</button>`).join('')}</div>
+    <p class="small muted">Der Kern bleibt. Gekürzt wird zuerst beim Ein- und Auslaufen, erst dann fallen Wiederholungen weg.</p>`;
+  h += `<button class="btn lime" data-act="adjprev">Vorschau ansehen</button>`;
+  if (ST.swaps[id] || ST.variants[id] || (ST.time && ST.time[id])) h += `<button class="btn ghost" data-act="restore" data-id="${id}">Original wiederherstellen</button>`;
+  openSheet(h);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const { act, id, v } = b.dataset;
+  if (act === 'adjust'){ ADJ = null; adjustSheet(id); }
+  if (act === 'adjpick' && ADJ){ ADJ.pick = v || null; adjustSheet(ADJ.id); }
+  if (act === 'adjtime' && ADJ){ ADJ.time = v ? Number(v) : null; adjustSheet(ADJ.id); }
+  if (act === 'adjprev' && ADJ){
+    const x = ADJ.pick && ADJ.A.opts.find(o => o[0] === ADJ.pick);
+    previewSheet(ADJ.id, { variant:null, swap: x ? { tpl:x[2].t.id, lvl:x[2].lvl } : null, time: ADJ.time }, 'Heute anpassen');
+  }
+});
 function modBanner(ev){
-  const what = ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : ev.eased ? `leichter: lockerer Dauerlauf statt ${esc(ev.origName)}` : `angepasst: ${VARIANTS[ev.variant]}`;
+  const what = (ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : ev.eased ? `leichter: lockerer Dauerlauf statt ${esc(ev.origName)}` : ev.variant ? `angepasst: ${VARIANTS[ev.variant]}` : 'angepasst') + (ev.timed ? ` · auf ${ev.timed} min` : '');
   return `<div class="note" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Diese Einheit ist <b>${what}</b>.</span><button class="chip" data-act="restore" data-id="${ev.id}" style="flex:none">Zurücksetzen</button></div>`;
 }
 function corePace(steps){
@@ -1174,13 +1245,16 @@ function corePace(steps){
 }
 // Änderung probehalber berechnen, ohne sie zu speichern
 function tryChange(id, change){
-  const keep = { v: ST.variants[id], s: ST.swaps[id] };
+  ST.time = ST.time || {};
+  const keep = { v: ST.variants[id], s: ST.swaps[id], t: ST.time[id] };
+  if ('time' in change){ if (change.time) ST.time[id] = change.time; else delete ST.time[id]; }
   if ('variant' in change){ if (change.variant) ST.variants[id] = change.variant; else delete ST.variants[id]; }
   if ('swap' in change){ if (change.swap) ST.swaps[id] = change.swap; else delete ST.swaps[id]; if (change.swap) delete ST.variants[id]; }
   const raw = SNAP.events.find(e => String(e.id) === String(id));
   const after = buildEvent(raw);
   if (keep.v) ST.variants[id] = keep.v; else delete ST.variants[id];
   if (keep.s) ST.swaps[id] = keep.s; else delete ST.swaps[id];
+  if (keep.t) ST.time[id] = keep.t; else delete ST.time[id];
   return after;
 }
 let PENDING = null;
@@ -1221,6 +1295,9 @@ function applyChange(id, change){
   const before = compTargets();
   if ('variant' in change){ if (change.variant) ST.variants[id] = change.variant; else delete ST.variants[id]; }
   if ('swap' in change){ if (change.swap){ ST.swaps[id] = change.swap; delete ST.variants[id]; } else delete ST.swaps[id]; }
+  ST.time = ST.time || {};
+  if ('time' in change){ if (change.time) ST.time[id] = change.time; else delete ST.time[id]; }
+  ADJ = null;
   const ev = plan().find(e => String(e.id) === String(id));
   const c = ev ? compensate(ev) : null;
   save(); closeSheet(); render();
@@ -1243,7 +1320,7 @@ document.addEventListener('click', e => {
   if (act === 'papply' && PENDING){ const P = PENDING; PENDING = null; applyChange(P.id, P.change); }
   if (act === 'restore'){
     const raw = SNAP.events.find(x => String(x.id) === String(id)); if (!raw) return;
-    if (!b.dataset.confirmed){ previewSheet(id, { variant:null, swap:null }, 'Original wiederherstellen'); return; }
+    if (!b.dataset.confirmed){ previewSheet(id, { variant:null, swap:null, time:null }, 'Original wiederherstellen'); return; }
   }
 });
 

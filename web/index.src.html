@@ -122,7 +122,7 @@ const CONFIG = { apiBase: null /*__API__*/ }; // später: URL des Cloudflare Wor
 /* ---------- Daten ---------- */
 let SNAP = JSON.parse(document.getElementById('snapshot').textContent);
 const store = (() => { try { const k='ontrack.v1'; return { get:()=>JSON.parse(localStorage.getItem(k)||'{}'), set:v=>localStorage.setItem(k,JSON.stringify(v)) }; } catch(e){ return { get:()=>({}), set:()=>{} }; } })();
-const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{}, swaps:{}, checkin:{} }, store.get());
+const ST = Object.assign({ moves:{}, variants:{}, removed:{}, comp:{}, feel:{}, auto:{}, unfit:{}, orig:{}, swaps:{}, checkin:{}, time:{} }, store.get());
 const save = () => { try { store.set(ST); } catch(e){} };
 
 let TODAY = SNAP.today;
@@ -200,6 +200,33 @@ function stepLabel(s){
 
 /* Variante anwenden: leichter / schwerer / kürzer / länger */
 const VARIANTS = { leichter:'Leichter', schwerer:'Schwerer', kuerzer:'Kürzer', laenger:'Länger' };
+// Auf eine Wunschdauer bringen: erst lockere Teile stauchen, dann harte Wiederholungen von hinten streichen (mind. die Hälfte bleibt)
+function trimSteps(steps0, minutes){
+  const steps = steps0.map(s => Object.assign({}, s)), target = minutes * 60;
+  const tot = () => steps.reduce((a,s)=>a+(s.duration||0),0);
+  const easyIdx = () => steps.map((s,i)=>i).filter(i => stepPct(steps[i]) < 88 && steps[i].duration >= 120);
+  if (tot() < target - 30){
+    let i = easyIdx().sort((a,b)=>steps[b].duration-steps[a].duration)[0]; if (i == null) i = 0;
+    steps[i].duration += Math.round((target - tot())/30)*30; return steps;
+  }
+  for (const i of easyIdx().sort((a,b)=>steps[b].duration-steps[a].duration)){
+    const s = steps[i], min = s.warmup ? 300 : s.cooldown ? 180 : Math.max(120, s.duration * 0.4);
+    const cut = Math.min(tot() - target, s.duration - min);
+    if (cut > 0) s.duration = Math.max(min, Math.round((s.duration - cut)/30)*30);
+    if (tot() - target <= 30) break;
+  }
+  const isHard = i => stepPct(steps[i]) >= 90 && steps[i].duration >= 45;
+  let removable = Math.floor(steps.filter((s,i)=>isHard(i)).length / 2);
+  while (tot() - target > 30 && removable > 0){
+    const hi = [...steps.keys()].filter(isHard).pop();
+    const nx = steps[hi+1], pv = steps[hi-1];
+    if (nx && stepPct(nx) < 88 && !nx.cooldown) steps.splice(hi, 2);
+    else if (pv && stepPct(pv) < 88 && !pv.warmup) steps.splice(hi-1, 2);
+    else steps.splice(hi, 1);
+    removable--;
+  }
+  return steps;
+}
 function applyVariant(steps, v){
   // Kurze Abschnitte (unter 90 s, z. B. Steigerungen) behalten ihre Dauer
   const r30 = (x, orig) => orig < 90 ? orig : Math.max(60, Math.round(x/30)*30);
@@ -241,7 +268,7 @@ function buildEvent(e0){
   const origBase = base;
   const sw = ST.swaps && ST.swaps[e0.id];
   const swT = sw && typeof LIB !== 'undefined' ? LIB.find(t => t.id === sw.tpl) : null;
-  if (swT){ const minutes = Math.max(20, Math.round(base.reduce((a,x)=>a+(x.duration||0),0)/60) || 45); base = flatSteps(fitWorkout(swT, minutes).steps); }
+  if (swT){ const minutes = Math.max(20, Math.round(base.reduce((a,x)=>a+(x.duration||0),0)/60) || 45); base = flatSteps(fitWorkout(swT, minutes, sw.lvl ?? 2).steps); }
   let steps = base, eased = null;
   const v = ST.variants[e.id];
   // Leichter bei Sprints oder VO2max-Intervallen: nicht nur langsamer, sondern ein lockerer Dauerlauf gleicher Dauer
@@ -253,6 +280,8 @@ function buildEvent(e0){
     while (estLoad(steps) > cap && minutes > 20){ minutes -= 5; steps = flatSteps(fitWorkout(LIB.find(t => t.id === 'GRU-1'), minutes).steps); }
     eased = 'Lockerer Dauerlauf';
   } else if (v) steps = applyVariant(base, v);
+  const tm = ST.time && ST.time[e0.id];
+  if (tm) steps = trimSteps(steps, tm);
   const extra = ST.comp[e.id] || 0; // Ausgleich in Sekunden, wird auf den längsten lockeren Abschnitt gelegt
   if (extra && steps.length){
     steps = steps.map(s=>Object.assign({},s));
@@ -265,7 +294,7 @@ function buildEvent(e0){
   const ratio = origBase.length ? estLoad(steps)/Math.max(estLoad(origBase),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
   const cat = eased ? category(Object.assign({}, e, { name: eased }), steps) : category(swT ? Object.assign({}, e, { name: swT.name, moving_time: base.reduce((a,x)=>a+x.duration,0) }) : e, base);
-  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, modified: !!(v || swT) };
+  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, timed: tm || null, modified: !!(v || swT || tm) };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
