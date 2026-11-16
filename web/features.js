@@ -1157,7 +1157,7 @@ function runScrub(el, clientX){
 }
 /* ---------- Anpassen mit Vorschau, Tauschen für geplante Einheiten, Original wiederherstellen ---------- */
 function swapRow(ev){
-  return `<div class="row"><span class="small muted">${ev.modified ? 'Angepasst' : esc(sourceOf(ev.raw))}</span><button class="chip" data-act="pswap" data-id="${ev.id}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4"></path><path d="M3 8h14"></path><path d="M17 20l4-4-4-4"></path><path d="M21 16H7"></path></svg>Tauschen</button></div>`;
+  return `<div class="row"><span class="small muted">${ev.modified ? 'Angepasst' : esc(sourceOf(ev.raw))}</span><button class="chip" data-act="adjust" data-id="${ev.id}" style="background:var(--bg);color:var(--lime)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9"></path><path d="M17 6h3"></path><circle cx="15" cy="6" r="2"></circle><path d="M4 12h3"></path><path d="M11 12h9"></path><circle cx="9" cy="12" r="2"></circle><path d="M4 18h11"></path><path d="M19 18h1"></path><circle cx="17" cy="18" r="2"></circle></svg>Anpassen</button></div>`;
 }
 function variantGrid(ev){
   return `<button class="btn" data-act="adjust" data-id="${ev.id}">Heute anpassen: leichter, härter, kürzer</button>`;
@@ -1219,6 +1219,7 @@ function adjustSheet(id){
     <div style="display:flex;flex-wrap:wrap;gap:6px">${times.map(t => `<button class="chip" data-act="adjtime" data-v="${t ?? ''}" style="${ADJ.time === t ? 'background:var(--lime);color:var(--bg)' : 'color:var(--lilac)'}">${t == null ? 'Original' : t > M ? '+15′' : t + '′'}</button>`).join('')}</div>
     <p class="small muted">Der Kern bleibt. Gekürzt wird zuerst beim Ein- und Auslaufen, erst dann fallen Wiederholungen weg.</p>`;
   h += `<button class="btn lime" data-act="adjprev">Vorschau ansehen</button>`;
+  h += `<button class="row" data-act="pswap" data-id="${id}" style="border:0;border-top:1px solid var(--line);background:none;color:var(--lime);font:inherit;font-weight:700;padding:14px 2px 2px;cursor:pointer;text-align:left"><span>Anderes Training aus der Bibliothek</span><span aria-hidden="true">›</span></button>`;
   if (ST.swaps[id] || ST.variants[id] || (ST.time && ST.time[id])) h += `<button class="btn ghost" data-act="restore" data-id="${id}">Original wiederherstellen</button>`;
   openSheet(h);
 }
