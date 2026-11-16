@@ -1219,7 +1219,10 @@ function adjustSheet(id){
     <div style="display:flex;flex-wrap:wrap;gap:6px">${times.map(t => `<button class="chip" data-act="adjtime" data-v="${t ?? ''}" style="${ADJ.time === t ? 'background:var(--lime);color:var(--bg)' : 'color:var(--lilac)'}">${t == null ? 'Original' : t > M ? '+15′' : t + '′'}</button>`).join('')}</div>
     <p class="small muted">Der Kern bleibt. Gekürzt wird zuerst beim Ein- und Auslaufen, erst dann fallen Wiederholungen weg.</p>`;
   h += `<button class="btn lime" data-act="adjprev">Vorschau ansehen</button>`;
-  h += `<button class="row" data-act="pswap" data-id="${id}" style="border:0;border-top:1px solid var(--line);background:none;color:var(--lime);font:inherit;font-weight:700;padding:14px 2px 2px;cursor:pointer;text-align:left"><span>Anderes Training aus der Bibliothek</span><span aria-hidden="true">›</span></button>`;
+  h += `<button data-act="pswap" data-id="${id}" style="display:flex;align-items:center;gap:12px;width:100%;border:0;border-radius:16px;background:rgba(26,8,64,.45);color:var(--text);font:inherit;padding:12px;cursor:pointer;text-align:left">
+    <span aria-hidden="true" style="width:40px;height:40px;border-radius:12px;background:var(--lime);color:var(--bg);display:flex;align-items:center;justify-content:center;flex:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4v16H5z"></path><path d="M9 4h4v16H9z"></path><path d="M14.5 5.5l3.8-1 3.2 14.5-3.8 1z"></path></svg></span>
+    <span style="flex:1;min-width:0"><b style="display:block">Anderes Training wählen</b><span class="small muted">${LIB.filter(t => t.cat !== 'test').length} Workouts aus der Bibliothek</span></span>
+    <span aria-hidden="true" style="color:var(--lime);font-size:22px;font-weight:700">›</span></button>`;
   if (ST.swaps[id] || ST.variants[id] || (ST.time && ST.time[id])) h += `<button class="btn ghost" data-act="restore" data-id="${id}">Original wiederherstellen</button>`;
   openSheet(h);
 }
