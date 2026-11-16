@@ -1340,7 +1340,7 @@ function openCatSheet(html){
 }
 
 /* ---------- Coach: KI-Fragen, Debrief, Trainings erstellen (Gemini, Groq, ChatGPT, Claude über den eigenen Server) ---------- */
-const AI_P = [['gemini','Gemini','gratis'],['groq','Groq','gratis'],['openai','ChatGPT','bezahlt'],['anthropic','Claude','bezahlt']];
+const AI_P = [['gemini','Gemini','gratis'],['groq','Groq','gratis'],['openrouter','OpenRouter','gratis und bezahlt'],['openai','ChatGPT','bezahlt'],['anthropic','Claude','bezahlt']];
 let AIS = null; // Status vom Server: { keys, order, models }
 let COACH_BUSY = false;
 function coachState(){ ST.coach = ST.coach || { msgs:[], deb:{}, auto:true }; return ST.coach; }
@@ -1505,7 +1505,8 @@ function viewCoachSettings(){
   if (!LIVE) return h + `<p class="note">Nur in der Live-App verfügbar.</p>`;
   if (!AIS) return h + `<p class="muted">Lade …</p>`;
   if (AIS.error) h += `<p class="note">Server meldet: ${esc(AIS.error)}</p>`;
-  const order = (AIS.order && AIS.order.length) ? AIS.order : AI_P.map(p => p[0]);
+  let order = (AIS.order && AIS.order.length) ? AIS.order : AI_P.map(p => p[0]);
+  order = [...order, ...AI_P.map(p => p[0]).filter(p => !order.includes(p))];
   const active = order.find(p => AIS.keys[p]);
   h += `<p class="small muted">Der aktive Anbieter antwortet zuerst. Klappt es dort nicht (z. B. Tageslimit), springt automatisch der nächste mit Key ein.</p><section class="list">`;
   for (const p of order){
@@ -1567,7 +1568,7 @@ document.addEventListener('click', async e => {
     try {
       const { models } = await aiApi('GET', `/api/ai/models/${v}`);
       const cur = (AIS.models || {})[v];
-      openSheet(`<h2>Modell wählen</h2><p class="small muted">Standard ist ein schnelles, günstiges Modell. Größere Modelle analysieren genauer, verbrauchen aber schneller Gratis-Limits.</p><div class="list"><button class="ev" data-act="aisetmodel" data-v="${v}" data-m="" style="${!cur?'outline:2px solid var(--lime)':''}">Standard</button>${models.slice(0,60).map(m => `<button class="ev" data-act="aisetmodel" data-v="${v}" data-m="${esc(m)}" style="${cur===m?'outline:2px solid var(--lime)':''}">${esc(m)}</button>`).join('')}</div>`);
+      openSheet(`<h2>Modell wählen</h2><p class="small muted">Standard ist ein schnelles, günstiges Modell. Größere Modelle analysieren genauer, verbrauchen aber schneller Gratis-Limits.</p><div class="list"><button class="ev" data-act="aisetmodel" data-v="${v}" data-m="" style="${!cur?'outline:2px solid var(--lime)':''}">Standard</button>${models.slice(0,120).map(m => `<button class="ev" data-act="aisetmodel" data-v="${v}" data-m="${esc(m)}" style="${cur===m?'outline:2px solid var(--lime)':''}">${esc(m.replace(/:free$/,''))}${m.endsWith(':free')?' <span class="small" style="color:var(--lime);font-weight:700">gratis</span>':''}</button>`).join('')}</div>`);
     } catch(err){ openSheet(`<h2>Modell wählen</h2><p class="note">Modelle konnten nicht geladen werden: ${esc(err.message)}</p>`); }
   }
 });

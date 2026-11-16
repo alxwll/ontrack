@@ -135,9 +135,10 @@ const PROVIDERS = {
   gemini:    { name: 'Gemini' },
   groq:      { name: 'Groq', base: 'https://api.groq.com/openai/v1' },
   openai:    { name: 'ChatGPT', base: 'https://api.openai.com/v1' },
+  openrouter:{ name: 'OpenRouter', base: 'https://openrouter.ai/api/v1' },
   anthropic: { name: 'Claude' },
 };
-const DEFAULT_MODEL = { gemini: 'gemini-2.5-flash', groq: 'openai/gpt-oss-120b', openai: 'gpt-4o-mini', anthropic: 'claude-haiku-5-5' };
+const DEFAULT_MODEL = { gemini: 'gemini-2.5-flash', groq: 'openai/gpt-oss-120b', openai: 'gpt-4o-mini', openrouter: 'openrouter/auto', anthropic: 'claude-haiku-5-5' };
 
 async function ai(req, url, env, cors) {
   if (!env.AI) return json({ error: 'KV-Bindung "AI" fehlt im Worker. Siehe Anleitung im README.' }, 500, cors);
@@ -172,7 +173,7 @@ async function ai(req, url, env, cors) {
   // Frage stellen: Anbieter der Reihe nach, bis einer antwortet
   if (req.method === 'POST' && url.pathname === '/api/ai/chat') {
     const { system, messages } = await req.json();
-    const order = (conf.order && conf.order.length ? conf.order : Object.keys(PROVIDERS));
+    const order = [...new Set([...(conf.order || []), ...Object.keys(PROVIDERS)])];
     const errors = [];
     for (const p of order) {
       const k = await keyOf(p); if (!k) continue;
@@ -212,7 +213,7 @@ async function callModel(p, key, model, system, messages) {
   }
   // OpenAI-kompatibel (ChatGPT, Groq)
   const r = await fetch(`${PROVIDERS[p].base}/chat/completions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...(p === 'openrouter' ? { 'X-Title': 'On. Track' } : {}) },
     body: JSON.stringify({ model, temperature: 0.4, messages: [{ role: 'system', content: system }, ...messages] }),
   });
   const d = await r.json();
@@ -231,6 +232,8 @@ async function listModels(p, key) {
       return (d.data || []).map(m => m.id);
     }
     const d = await fetch(`${PROVIDERS[p].base}/models`, { headers: { Authorization: `Bearer ${key}` } }).then(r => r.json());
-    return (d.data || []).map(m => m.id).sort();
+    const ids = (d.data || []).map(m => m.id).sort();
+    // OpenRouter: Gratis-Modelle (":free") zuerst
+    return p === 'openrouter' ? [...ids.filter(x => x.endsWith(':free')), ...ids.filter(x => !x.endsWith(':free'))] : ids;
   } catch { return []; }
 }
