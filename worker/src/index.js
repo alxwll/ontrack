@@ -2,6 +2,7 @@
 // Aufgabe: hält den Intervals.icu-API-Key geheim und liefert der App ihre Daten.
 // Secrets (per `wrangler secret put`): INTERVALS_API_KEY, APP_TOKEN
 // Variablen (wrangler.toml): ATHLETE_ID, ALLOWED_ORIGIN
+// KV-Bindung AI (für den Coach): speichert die KI-Keys, die in der App eingegeben werden
 
 const API = 'https://intervals.icu/api/v1';
 
@@ -99,6 +100,9 @@ export default {
         return json(await r.json(), r.status, cors);
       }
 
+      // ---------- Coach: KI-Keys und Anfragen ----------
+      if (url.pathname.startsWith('/api/ai/')) return await ai(req, url, env, cors);
+
       return json({ error: 'Unbekannter Pfad' }, 404, cors);
     } catch (err) {
       return json({ error: String(err) }, 500, cors);
@@ -124,4 +128,109 @@ function downsample(streams) {
     out.push([t[i], vv.length ? +(vv.reduce((a, b) => a + b, 0) / vv.length).toFixed(3) : 0, hh.length ? Math.round(hh.reduce((a, b) => a + b, 0) / hh.length) : 0]);
   }
   return out;
+}
+
+/* ---------- Coach ---------- */
+const PROVIDERS = {
+  gemini:    { name: 'Gemini' },
+  groq:      { name: 'Groq', base: 'https://api.groq.com/openai/v1' },
+  openai:    { name: 'ChatGPT', base: 'https://api.openai.com/v1' },
+  anthropic: { name: 'Claude' },
+};
+const DEFAULT_MODEL = { gemini: 'gemini-2.5-flash', groq: 'openai/gpt-oss-120b', openai: 'gpt-4o-mini', anthropic: 'claude-haiku-5-5' };
+
+async function ai(req, url, env, cors) {
+  if (!env.AI) return json({ error: 'KV-Bindung "AI" fehlt im Worker. Siehe Anleitung im README.' }, 500, cors);
+  const conf = JSON.parse(await env.AI.get('config') || '{}'); // { order:[...], models:{...} }
+  const keyOf = p => env.AI.get('key:' + p);
+
+  // Status: welche Anbieter haben Keys (nur die letzten vier Zeichen)
+  if (req.method === 'GET' && url.pathname === '/api/ai/status') {
+    const out = {};
+    for (const p of Object.keys(PROVIDERS)) { const k = await keyOf(p); out[p] = k ? k.slice(-4) : null; }
+    return json({ keys: out, order: conf.order || [], models: conf.models || {} }, 200, cors);
+  }
+  // Key speichern oder löschen
+  const km = url.pathname.match(/^\/api\/ai\/keys\/(\w+)$/);
+  if (km && PROVIDERS[km[1]]) {
+    if (req.method === 'PUT') { const { key } = await req.json(); if (!key || key.length < 10) return json({ error: 'Key zu kurz' }, 400, cors); await env.AI.put('key:' + km[1], key.trim()); return json({ ok: true, last4: key.trim().slice(-4) }, 200, cors); }
+    if (req.method === 'DELETE') { await env.AI.delete('key:' + km[1]); return json({ ok: true }, 200, cors); }
+  }
+  // Reihenfolge und Modelle speichern
+  if (req.method === 'PUT' && url.pathname === '/api/ai/config') {
+    const b = await req.json();
+    const next = { order: (b.order || []).filter(p => PROVIDERS[p]), models: b.models || {} };
+    await env.AI.put('config', JSON.stringify(next));
+    return json({ ok: true }, 200, cors);
+  }
+  // Verfügbare Modelle eines Anbieters
+  const mm = url.pathname.match(/^\/api\/ai\/models\/(\w+)$/);
+  if (req.method === 'GET' && mm && PROVIDERS[mm[1]]) {
+    const k = await keyOf(mm[1]); if (!k) return json({ error: 'Kein Key' }, 400, cors);
+    return json({ models: await listModels(mm[1], k) }, 200, cors);
+  }
+  // Frage stellen: Anbieter der Reihe nach, bis einer antwortet
+  if (req.method === 'POST' && url.pathname === '/api/ai/chat') {
+    const { system, messages } = await req.json();
+    const order = (conf.order && conf.order.length ? conf.order : Object.keys(PROVIDERS));
+    const errors = [];
+    for (const p of order) {
+      const k = await keyOf(p); if (!k) continue;
+      const model = (conf.models || {})[p] || DEFAULT_MODEL[p];
+      try {
+        const text = await callModel(p, k, model, system, messages);
+        return json({ text, provider: PROVIDERS[p].name, model }, 200, cors);
+      } catch (e) { errors.push(`${PROVIDERS[p].name}: ${String(e.message || e).slice(0, 160)}`); }
+    }
+    return json({ error: errors.length ? errors.join(' | ') : 'Kein KI-Key hinterlegt' }, 502, cors);
+  }
+  return json({ error: 'Unbekannter Pfad' }, 404, cors);
+}
+
+async function callModel(p, key, model, system, messages) {
+  if (p === 'gemini') {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        generationConfig: { temperature: 0.4 },
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || r.status);
+    return (d.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
+  }
+  if (p === 'anthropic') {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model, max_tokens: 1200, system, messages, temperature: 0.4 }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || r.status);
+    return (d.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+  }
+  // OpenAI-kompatibel (ChatGPT, Groq)
+  const r = await fetch(`${PROVIDERS[p].base}/chat/completions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, temperature: 0.4, messages: [{ role: 'system', content: system }, ...messages] }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error?.message || r.status);
+  return (d.choices?.[0]?.message?.content || '').trim();
+}
+
+async function listModels(p, key) {
+  try {
+    if (p === 'gemini') {
+      const d = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100', { headers: { 'x-goog-api-key': key } }).then(r => r.json());
+      return (d.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace('models/', ''));
+    }
+    if (p === 'anthropic') {
+      const d = await fetch('https://api.anthropic.com/v1/models', { headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' } }).then(r => r.json());
+      return (d.data || []).map(m => m.id);
+    }
+    const d = await fetch(`${PROVIDERS[p].base}/models`, { headers: { Authorization: `Bearer ${key}` } }).then(r => r.json());
+    return (d.data || []).map(m => m.id).sort();
+  } catch { return []; }
 }

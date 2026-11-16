@@ -32,6 +32,8 @@
 
 🎯 **Ein Ziel, ein ehrlicher Plan:** 5 km bis Marathon, 2 bis 6 Lauftage, langer Lauf an jedem Wochentag und Warnungen, wenn der Plan zu viel will.
 
+🗨️ **Coach:** Fragen zu Läufen und Form, Debrief nach jedem Lauf und Trainings auf Zuruf. Wahlweise mit Gemini, Groq, ChatGPT oder Claude, mit automatischem Rückfall.
+
 🔁 **Zurück auf die Uhr:** Änderungen landen als strukturierte Workouts in Intervals.icu und auf der Garmin. Fremde Pläne bleiben unangetastet.
 
 ---
@@ -73,6 +75,12 @@ python3 build.py empty_snapshot.json https://<dein-worker>.workers.dev index.htm
 3. Die angezeigte Adresse beim Bauen als zweites Argument angeben.
 4. App hosten, z. B. mit GitHub Pages. Beim ersten Öffnen fragt sie einmal nach dem Zugangscode.
 5. In den Worker-Variablen `ALLOWED_ORIGIN` auf die Adresse der App setzen und erneut deployen.
+
+**Coach aktivieren** (optional)
+
+1. In Cloudflare unter Storage & Databases → KV einen Namespace anlegen, z. B. `ontrack-ai`.
+2. Im Worker unter Settings → Bindings eine KV-Bindung mit dem Namen `AI` auf diesen Namespace hinzufügen und deployen.
+3. In der App im Tab Coach auf ⚙︎ tippen und einen Key für Gemini, Groq, ChatGPT oder Claude eintragen. Er wird nur auf dem Server gespeichert.
 
 </details>
 

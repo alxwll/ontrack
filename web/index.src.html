@@ -428,7 +428,7 @@ function navBar(r){
   };
   const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
   const t=(k,l,ic,cls='')=>`<a href="#${k}" class="${cls}${r===k?' act':''}"${r===k?' aria-current="page"':''}>${cls.includes('mid')?`<span class="ring">${svg(ic)}</span>`:svg(ic)}${l}</a>`;
-  return `<nav class="nav" aria-label="Hauptnavigation"><div>${t('woche','Plan','plan')}${t('workouts','Train','train')}${t('heute','Heute','heute','mid')}${t('form','Form','form')}${t('coach','Coach','coach','soon')}</div></nav>`;
+  return `<nav class="nav" aria-label="Hauptnavigation"><div>${t('woche','Plan','plan')}${t('workouts','Train','train')}${t('heute','Heute','heute','mid')}${t('form','Form','form')}${t('coach','Coach','coach')}</div></nav>`;
 }
 
 function viewToday(){
@@ -505,7 +505,8 @@ function viewDetail(id){
     h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Helle Linie: deine tatsächliche Pace</p>':''}</section>`;
   }
   if (st.s==='done' && st.act){
-    h += `<section class="card"><h2>Coach</h2><p style="line-height:1.5">${esc(debrief(ev, st.act, stream))}</p></section>`;
+    const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
+    h += `<section class="card" style="display:flex;flex-direction:column;gap:8px"><div class="row"><h2>Coach</h2>${LIVE ? `<button class="chip" data-act="cask" data-id="${ev.id}" data-n="${esc(ev.name)}" style="color:var(--lime)">Coach fragen</button>` : ''}</div>${aid || `<p style="line-height:1.5">${esc(debrief(ev, st.act, stream))}</p>`}</section>`;
     h += `<section class="list"><h2>Wie war's?</h2><div class="fb">${['Leicht','Gut','Hart','Zu hart'].map(x=>`<button data-act="feel" data-id="${ev.id}" data-v="${x}" class="${ST.feel[ev.id]===x?'sel':''}">${x}</button>`).join('')}</div></section>`;
   }
   if (ev.steps.length){
@@ -630,7 +631,7 @@ function render(){
   const h = location.hash.replace('#','') || 'heute';
   const m = h.match(/^([a-z]+)(?:-(\d+))?$/) || [null,'heute']; const r = m[1], id = m[2];
   const root = $('#root');
-  const V = { woche:viewWeek, detail:()=>viewDetail(id), form:viewForm, workouts:viewWorkouts, gen:viewGenerated, bib:()=>viewLibrary(id), ziel:viewGoal, planvorschau:viewPlanPreview };
+  const V = { woche:viewWeek, detail:()=>viewDetail(id), form:viewForm, workouts:viewWorkouts, gen:viewGenerated, bib:()=>viewLibrary(id), ziel:viewGoal, planvorschau:viewPlanPreview, coach:viewCoach, coachset:viewCoachSettings };
   root.innerHTML = `<main class="app">${(V[r]||viewToday)()}</main>`;
 }
 addEventListener('hashchange', ()=>{ closeSheet(); window.scrollTo(0,0); render(); });
@@ -659,6 +660,7 @@ async function init(){
     try { res = await loadLive(token); } catch(e){}
     if (res === 'auth'){ try { localStorage.removeItem('ontrack.token'); } catch(e){} $('#root').innerHTML = loginView('Der Zugangscode stimmt nicht.'); return; }
     if (res === 'err' && !SNAP.events.length){ $('#root').innerHTML = loginView('Server nicht erreichbar. Bitte später nochmal versuchen.'); return; }
+    if (typeof aiStatus === 'function') aiStatus().then(() => render());
   }
   render();
 }

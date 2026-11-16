@@ -428,7 +428,7 @@ function navBar(r){
   };
   const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
   const t=(k,l,ic,cls='')=>`<a href="#${k}" class="${cls}${r===k?' act':''}"${r===k?' aria-current="page"':''}>${cls.includes('mid')?`<span class="ring">${svg(ic)}</span>`:svg(ic)}${l}</a>`;
-  return `<nav class="nav" aria-label="Hauptnavigation"><div>${t('woche','Plan','plan')}${t('workouts','Train','train')}${t('heute','Heute','heute','mid')}${t('form','Form','form')}${t('coach','Coach','coach','soon')}</div></nav>`;
+  return `<nav class="nav" aria-label="Hauptnavigation"><div>${t('woche','Plan','plan')}${t('workouts','Train','train')}${t('heute','Heute','heute','mid')}${t('form','Form','form')}${t('coach','Coach','coach')}</div></nav>`;
 }
 
 function viewToday(){
@@ -505,7 +505,8 @@ function viewDetail(id){
     h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Helle Linie: deine tatsächliche Pace</p>':''}</section>`;
   }
   if (st.s==='done' && st.act){
-    h += `<section class="card"><h2>Coach</h2><p style="line-height:1.5">${esc(debrief(ev, st.act, stream))}</p></section>`;
+    const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
+    h += `<section class="card" style="display:flex;flex-direction:column;gap:8px"><div class="row"><h2>Coach</h2>${LIVE ? `<button class="chip" data-act="cask" data-id="${ev.id}" data-n="${esc(ev.name)}" style="color:var(--lime)">Coach fragen</button>` : ''}</div>${aid || `<p style="line-height:1.5">${esc(debrief(ev, st.act, stream))}</p>`}</section>`;
     h += `<section class="list"><h2>Wie war's?</h2><div class="fb">${['Leicht','Gut','Hart','Zu hart'].map(x=>`<button data-act="feel" data-id="${ev.id}" data-v="${x}" class="${ST.feel[ev.id]===x?'sel':''}">${x}</button>`).join('')}</div></section>`;
   }
   if (ev.steps.length){
@@ -1885,6 +1886,239 @@ function openCatSheet(html){
   if (keep !== null) nr.scrollLeft = keep;
 }
 
+/* ---------- Coach: KI-Fragen, Debrief, Trainings erstellen (Gemini, Groq, ChatGPT, Claude über den eigenen Server) ---------- */
+const AI_P = [['gemini','Gemini','gratis'],['groq','Groq','gratis'],['openai','ChatGPT','bezahlt'],['anthropic','Claude','bezahlt']];
+let AIS = null; // Status vom Server: { keys, order, models }
+let COACH_BUSY = false;
+function coachState(){ ST.coach = ST.coach || { msgs:[], deb:{}, auto:true }; return ST.coach; }
+async function aiApi(method, path, body){
+  let token = ''; try { token = localStorage.getItem('ontrack.token') || ''; } catch(e){}
+  const r = await fetch(`${CONFIG.apiBase}${path}`, { method, headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+async function aiStatus(force){
+  if (!LIVE) return null;
+  if (AIS && !force) return AIS;
+  try { AIS = await aiApi('GET', '/api/ai/status'); } catch(e){ AIS = { error: e.message, keys:{}, order:[], models:{} }; }
+  return AIS;
+}
+const hasAI = () => AIS && AIS.keys && Object.values(AIS.keys).some(Boolean);
+const paceOf = (m, s) => s > 0 ? paceStr(m / s) : '–';
+// Kompakter Kontext statt Rohdaten: spart Tokens, kleine Modelle analysieren damit besser
+function runSummary(act){
+  return `${act.start_date_local.slice(0,10)} ${act.name || 'Lauf'}: ${(act.distance/1000).toFixed(1)} km, ${mins(act.moving_time)} min, ${paceOf(act.distance, act.moving_time)}/km, Ø HF ${act.average_heartrate ? Math.round(act.average_heartrate) : '–'}, Belastung ${act.icu_training_load ?? '–'}, ${act.total_elevation_gain ?? 0} hm`;
+}
+function splitByPlan(steps, stream){
+  if (!stream || !stream.length) return '';
+  let t0 = 0; const out = [];
+  for (const s of compress(steps).length ? steps : []){
+    const t1 = t0 + (s.duration || 0);
+    const pts = stream.filter(r => r[0] >= t0 && r[0] < t1 && r[1] > 0.5);
+    if (pts.length){
+      const v = pts.reduce((a,r)=>a+r[1],0)/pts.length, hrs = pts.filter(r=>r[2]>0), hr = hrs.length ? Math.round(hrs.reduce((a,r)=>a+r[2],0)/hrs.length) : null;
+      out.push(`${Math.round(s.duration/60*10)/10} min Ziel ${s.pace ? `${pctToPace(s.pace.end)}–${pctToPace(s.pace.start)}` : '–'} → gelaufen ${paceStr(v)}${hr ? `, HF ${hr}` : ''}${s.text ? ` (${s.text})` : ''}`);
+    }
+    t0 = t1;
+  }
+  return out.join('\n');
+}
+function coachContext(focusId){
+  const L = [];
+  L.push(`Heute: ${TODAY}. Schwellenpace ${pctToPace(100)}/km. LTHR ${SNAP.settings.lthr || '–'}, HFmax ${SNAP.settings.max_hr || '–'}.`);
+  const r = readiness(), f = r.f;
+  L.push(`Bereitschaft heute: ${r.score ?? 'noch keine Nachtwerte'}${r.score != null ? ` (${r.zone.name})` : ''}${r.why.length ? ` · ${r.why.map(w=>w.t).join(', ')}` : ''}. Trainingsform (CTL−ATL): ${f.tsb} (${f.zone.name}).`);
+  const W = SNAP.wellness.filter(w => w.id > addDays(TODAY, -8));
+  L.push('Wellness 7 Tage (Datum: CTL/ATL, HRV, Ruhepuls, Schlaf):\n' + W.map(w => `${w.id}: ${Math.round(w.ctl||0)}/${Math.round(w.atl||0)}, HRV ${w.hrv ?? '–'}, RHR ${w.restingHR ?? '–'}, Schlaf ${w.sleepSecs ? (w.sleepSecs/3600).toFixed(1)+' h' : '–'}`).join('\n'));
+  const runs = SNAP.activities.filter(a => isRun(a.type) && a.start_date_local.slice(0,10) > addDays(TODAY, -15));
+  L.push('Läufe letzte 14 Tage:\n' + (runs.map(runSummary).join('\n') || 'keine'));
+  const wk = []; for (let i = 7; i >= 0; i--){ const a = addDays(TODAY, -7*(i+1)), b = addDays(TODAY, -7*i); wk.push(Math.round(SNAP.activities.filter(x => isRun(x.type) && x.start_date_local.slice(0,10) > a && x.start_date_local.slice(0,10) <= b).reduce((s,x)=>s+(x.distance||0),0)/1000)); }
+  L.push(`Lauf-km pro Woche (älteste zuerst, letzte = laufende 7 Tage): ${wk.join(', ')}`);
+  const next = plan().filter(e => e.date >= TODAY && e.date <= addDays(TODAY, 10));
+  L.push('Plan nächste 10 Tage:\n' + (next.map(e => `${e.date} ${e.name} · ${e.cat.name} · ${mins(e.dur)} min · Belastung ${e.load}`).join('\n') || 'nichts geplant'));
+  if (focusId){
+    const ev = plan().find(e => String(e.id) === String(focusId));
+    if (ev){
+      const st = statusOf(ev), stream = st.act && SNAP.streams[st.act.id];
+      L.push(`IM FOKUS: ${ev.date} ${ev.name} (${ev.cat.name}, geplant ${mins(ev.dur)} min).\nGeplanter Ablauf:\n${stepsToText(ev.steps)}`);
+      if (st.act) L.push(`Tatsächlich: ${runSummary(st.act)}${ST.feel[ev.id] ? `. Gefühl: ${ST.feel[ev.id]}` : ''}\n${splitByPlan(ev.steps, stream) ? 'Abschnitte (Ziel → gelaufen):\n' + splitByPlan(ev.steps, stream) : ''}`);
+    }
+  }
+  return L.join('\n\n');
+}
+const COACH_SYS = ctx => `Du bist der Lauf-Coach in der App "On. Track". Antworte auf Deutsch, per du, im Coaching-Ton: ehrlich, warm, konkret. Kurz halten, die Antwort wird am Handy gelesen: höchstens 6 bis 8 Sätze oder eine kurze Liste. Keine Tabellen. Emojis sparsam als Marker sind ok.
+Nutze nur die Daten unten. Erfinde keine Werte. Wenn Daten fehlen, sag das. Keine medizinischen Diagnosen; bei Schmerzen oder Krankheitsanzeichen zu Pause und ärztlicher Abklärung raten.
+Wenn der Nutzer ein Training möchte, beschreibe es kurz und hänge GENAU EINEN Block an:
+\`\`\`workout
+{"name":"Kurzer Name","date":"YYYY-MM-DD oder leer","desc":"1-2 Sätze Zweck und Hinweise","steps":[{"min":10,"pct":[75,82],"text":"Einlaufen","kind":"warmup"},{"repeat":5,"steps":[{"min":3,"pct":[97,101],"text":"Schwelle"},{"min":1.5,"pct":[70,78],"text":"Traben"}]},{"min":8,"pct":[70,78],"text":"Auslaufen","kind":"cooldown"}]}
+\`\`\`
+"pct" ist Prozent der Schwellenpace (100 = Schwelle, höher = schneller): Erholung <80, locker 80–90, Tempo 90–96, Schwelle 96–102, VO2max >102. Plane passend zu Bereitschaft, Form und Wochenplan; keine zwei harten Tage direkt hintereinander.
+
+DATEN:
+${ctx}`;
+function parseWorkouts(text){
+  const out = [], re = /```workout\s*([\s\S]*?)```/g; let m;
+  while ((m = re.exec(text))){
+    try {
+      const w = JSON.parse(m[1]); const steps = [];
+      const add = s => { const p = s.pct || [80,88]; steps.push(Object.assign({ duration: Math.max(10, Math.round((s.min || 1) * 60)), pace:{ start:+p[0], end:+(p[1] ?? p[0]), units:'%pace' } }, s.text ? { text:s.text } : {}, s.kind === 'warmup' ? { warmup:true } : s.kind === 'cooldown' ? { cooldown:true } : {})); };
+      for (const s of w.steps || []){ if (s.repeat) for (let i = 0; i < Math.min(20, s.repeat); i++) (s.steps || []).forEach(add); else add(s); }
+      if (steps.length) out.push({ name: String(w.name || 'Coach-Workout').slice(0,60), date: /^\d{4}-\d\d-\d\d$/.test(w.date || '') ? w.date : null, desc: String(w.desc || ''), steps });
+    } catch(e){}
+  }
+  return out;
+}
+function mdLite(t){
+  return esc(t.replace(/```workout[\s\S]*?```/g, '').trim())
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/^#{1,4}\s*(.+)$/gm, '<b>$1</b>')
+    .replace(/^\s*[-*•]\s+/gm, '• ')
+    .replace(/\n/g, '<br>');
+}
+function catOfSteps(steps){
+  const top = Math.max(...steps.map(stepPct));
+  return top >= 102 ? 'vo2' : top >= 96 ? 'schwelle' : top >= 90 ? 'tempo' : top >= 80 ? 'grundlage' : 'erholung';
+}
+async function askCoach(text, focusId){
+  const C = coachState();
+  if (COACH_BUSY || !text.trim()) return;
+  C.msgs.push({ role:'user', content:text.trim(), focus: focusId || null });
+  C.msgs = C.msgs.slice(-24); COACH_BUSY = true; save(); render();
+  try {
+    const hist = C.msgs.slice(-10).map(m => ({ role:m.role, content:m.content }));
+    const d = await aiApi('POST', '/api/ai/chat', { system: COACH_SYS(coachContext(focusId || (C.msgs.slice().reverse().find(m=>m.focus)||{}).focus)), messages: hist });
+    C.msgs.push({ role:'assistant', content:d.text || '…', via:`${d.provider} · ${d.model}` });
+  } catch(e){
+    C.msgs.push({ role:'assistant', content:`Gerade keine Antwort möglich: ${e.message}`, err:true });
+  }
+  COACH_BUSY = false; save(); render();
+  setTimeout(() => { const l = document.querySelector('.cmsgs'); if (l) l.lastElementChild?.scrollIntoView({ block:'start', behavior:'smooth' }); }, 50);
+}
+async function makeDebrief(evId, actId){
+  const C = coachState();
+  if (C.deb[actId] === 'pending') return;
+  C.deb[actId] = 'pending'; render();
+  try {
+    const d = await aiApi('POST', '/api/ai/chat', { system: COACH_SYS(coachContext(evId)), messages:[{ role:'user', content:'Gib mir einen kurzen Debrief zur Einheit im Fokus: Was lief gut, was fällt auf (Pace-Treue, Puls-Drift, Gefühl), und ein konkreter Tipp für die nächsten Tage. Höchstens 4 Sätze, kein Workout-Block.' }] });
+    C.deb[actId] = { text: d.text, via: `${d.provider} · ${d.model}` };
+  } catch(e){ C.deb[actId] = { text:`Debrief gerade nicht möglich: ${e.message}`, err:true }; }
+  const keys = Object.keys(C.deb); if (keys.length > 40) keys.slice(0, keys.length - 40).forEach(k => delete C.deb[k]);
+  save(); render();
+}
+// Debrief-Karte für erledigte Läufe (Details)
+function aiDebriefHTML(ev, act){
+  if (!LIVE) return '';
+  const C = coachState(), d = C.deb[act.id];
+  if (d === 'pending') return `<p class="small" style="color:var(--lilac)">Coach schaut sich den Lauf an …</p>`;
+  if (d) return `<p style="line-height:1.5">${mdLite(d.text)}</p><p class="small muted">${esc(d.via || '')}</p>`;
+  if (AIS && hasAI() && C.auto){ setTimeout(() => makeDebrief(ev.id, act.id), 0); return `<p class="small" style="color:var(--lilac)">Coach schaut sich den Lauf an …</p>`; }
+  if (AIS && hasAI()) return `<button class="chip" data-act="mkdeb" data-id="${ev.id}" data-v="${act.id}" style="align-self:flex-start;color:var(--lime)">KI-Debrief erstellen</button>`;
+  return '';
+}
+function viewCoach(){
+  const C = coachState();
+  if (LIVE && !AIS){ aiStatus().then(render); }
+  let h = `<div class="row"><h1>Coach</h1><span style="display:flex;gap:6px;align-items:center">${AIS && hasAI() ? `<span class="small" style="background:var(--bg2);padding:5px 10px;border-radius:99px;color:var(--lilac);font-weight:700">${esc((AI_P.find(p => p[0] === ((AIS.order||[])[0] || AI_P.find(q => AIS.keys[q[0]])[0])) || [,'KI'])[1])}</span>` : ''}<a href="#coachset" class="chip" aria-label="Coach-Einstellungen" style="color:var(--lime)">⚙︎</a></span></div>`;
+  if (!LIVE) return h + `<p class="note">Der Coach braucht die Live-App mit deinem Server. In dieser Vorschau ist er nicht verfügbar.</p>` + navBar('coach');
+  if (AIS && AIS.error) return h + `<p class="note">Server meldet: ${esc(AIS.error)}</p><a class="btn" href="#coachset">Einstellungen öffnen</a>` + navBar('coach');
+  if (AIS && !hasAI()) return h + `<p class="note">Hinterlege einen KI-Key, dann kann's losgehen. Gemini und Groq haben Gratis-Stufen.</p><a class="btn lime" href="#coachset">Key hinterlegen</a>` + navBar('coach');
+  // Letzter erledigter Lauf als Debrief oben
+  const last = plan().filter(e => isRun(e.type) && e.date >= addDays(TODAY, -3) && e.date <= TODAY).map(e => ({ e, st:statusOf(e) })).filter(x => x.st.s === 'done').pop();
+  if (last && AIS) h += `<section class="note" style="display:flex;flex-direction:column;gap:6px"><span class="small" style="color:var(--lime);font-weight:700">Debrief · ${esc(last.e.name)}</span>${aiDebriefHTML(last.e, last.st.act) || `<span class="small muted">Debrief ist ausgeschaltet.</span>`}<a href="#detail-${last.e.id}" class="small" style="color:var(--lilac)">Lauf ansehen ›</a></section>`;
+  h += `<div class="cmsgs" style="display:flex;flex-direction:column;gap:10px">`;
+  if (!C.msgs.length) h += `<p class="muted">Frag mich zu deinen Läufen, deiner Form oder lass dir ein Training bauen.</p><div style="display:flex;flex-wrap:wrap;gap:6px">${['Wie lief meine Woche?','Bin ich heute bereit für Tempo?','Bau mir ein Training für morgen, 45 min'].map(q => `<button class="chip" data-act="cq" data-v="${esc(q)}" style="color:var(--lilac)">${q}</button>`).join('')}</div>`;
+  C.msgs.forEach((m, i) => {
+    if (m.role === 'user') h += `<div style="align-self:flex-end;max-width:85%;background:var(--card);border-radius:16px 16px 4px 16px;padding:10px 12px;line-height:1.45">${esc(m.content)}</div>`;
+    else {
+      h += `<div style="align-self:flex-start;max-width:92%;background:var(--bg2);border-radius:16px 16px 16px 4px;padding:10px 12px;line-height:1.5;${m.err?'color:#FF8A1F':''}">${mdLite(m.content)}`;
+      parseWorkouts(m.content).forEach((w, k) => {
+        h += `<div style="margin-top:10px;background:var(--bg);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px"><span class="row"><b>${esc(w.name)}</b><span class="small muted">${mins(durOf(w.steps))} min · ${loadOf(w.steps)}</span></span>${profileSVG(w.steps,40)}<button class="btn lime" data-act="cwo" data-v="${i}:${k}" style="height:40px">Ansehen</button></div>`;
+      });
+      if (m.via) h += `<p class="small muted" style="margin-top:6px">${esc(m.via)}</p>`;
+      h += `</div>`;
+    }
+  });
+  if (COACH_BUSY) h += `<div style="align-self:flex-start;background:var(--bg2);border-radius:16px;padding:10px 12px;color:var(--lilac)">Coach denkt nach …</div>`;
+  h += `</div>`;
+  h += `<form id="cform" style="display:flex;gap:8px;align-items:flex-end"><textarea id="cin" rows="1" placeholder="Frag deinen Coach …" style="flex:1;resize:none;min-height:44px;max-height:140px;border:0;border-radius:22px;background:var(--bg2);color:var(--text);font:inherit;padding:11px 16px"></textarea><button class="btn lime" aria-label="Senden" style="width:44px;height:44px;padding:0;border-radius:99px;flex:none" ${COACH_BUSY?'disabled':''}>↑</button></form>`;
+  if (C.msgs.length) h += `<button class="chip" data-act="cclear" style="align-self:center;color:var(--lilac)">Neues Gespräch</button>`;
+  return h + navBar('coach');
+}
+function viewCoachSettings(){
+  if (LIVE && !AIS){ aiStatus().then(render); }
+  const C = coachState();
+  let h = `<a class="back" href="#coach">‹ Coach</a><h1>KI-Anbieter</h1>`;
+  if (!LIVE) return h + `<p class="note">Nur in der Live-App verfügbar.</p>`;
+  if (!AIS) return h + `<p class="muted">Lade …</p>`;
+  if (AIS.error) h += `<p class="note">Server meldet: ${esc(AIS.error)}</p>`;
+  const order = (AIS.order && AIS.order.length) ? AIS.order : AI_P.map(p => p[0]);
+  const active = order.find(p => AIS.keys[p]);
+  h += `<p class="small muted">Der aktive Anbieter antwortet zuerst. Klappt es dort nicht (z. B. Tageslimit), springt automatisch der nächste mit Key ein.</p><section class="list">`;
+  for (const p of order){
+    const [k, name, cost] = AI_P.find(x => x[0] === p), has = AIS.keys[k], model = (AIS.models||{})[k];
+    h += `<div style="background:var(--bg2);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px;${k===active?'outline:2px solid var(--lime)':''}">
+      <span class="row"><b>${name} <span class="small muted" style="font-weight:400">· ${cost}</span></b><span class="small" style="color:${has?'var(--lime)':'var(--lilac)'}">${has ? (k===active ? 'Aktiv' : `Rückfall ${order.filter(x=>AIS.keys[x]).indexOf(k)}`) : 'kein Key'}</span></span>
+      <span class="small muted">${has ? `Key •••• ${esc(has)} · Modell ${esc(model || 'Standard')}` : 'Noch kein Key hinterlegt'}</span>
+      <span style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="chip" data-act="aikey" data-v="${k}" style="color:var(--lime)">${has ? 'Key ersetzen' : '+ Key'}</button>
+        ${has ? `${k!==active?`<button class="chip" data-act="aitop" data-v="${k}" style="color:var(--lilac)">Als aktiv</button>`:''}<button class="chip" data-act="aimodel" data-v="${k}" style="color:var(--lilac)">Modell</button><button class="chip" data-act="aidel" data-v="${k}" style="color:var(--lilac)">Löschen</button>` : ''}
+      </span></div>`;
+  }
+  h += `</section><button class="row" data-act="cauto" style="background:var(--bg2);border:0;border-radius:16px;padding:14px;color:var(--text);font:inherit;font-weight:700;cursor:pointer"><span>Debrief nach jedem Lauf</span><span class="tog${C.auto?'':' off'}" style="font-size:20px"><i></i></span></button>
+    <p class="small muted">🔒 Keys werden auf deinem Server gespeichert, nicht auf dem Handy. Die App zeigt nur die letzten vier Zeichen. Bei Gratis-Stufen können Anbieter Anfragen zur Verbesserung ihrer Modelle nutzen, das steht in deren Bedingungen.</p>`;
+  return h;
+}
+document.addEventListener('submit', e => {
+  if (e.target.id !== 'cform') return;
+  e.preventDefault(); const v = document.getElementById('cin').value; askCoach(v);
+});
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'cin' && e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer:fine)').matches){ e.preventDefault(); askCoach(e.target.value); }
+});
+document.addEventListener('input', e => { if (e.target.id === 'cin'){ e.target.style.height = 'auto'; e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'; } });
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const { act, v, id } = b.dataset, C = coachState();
+  if (act === 'cq') askCoach(v);
+  if (act === 'cclear'){ C.msgs = []; save(); render(); }
+  if (act === 'cask'){ location.hash = '#coach'; setTimeout(() => askCoach(`Was sagst du zu meiner Einheit „${b.dataset.n}“?`, id), 30); }
+  if (act === 'mkdeb') makeDebrief(id, v);
+  if (act === 'cwo'){
+    const [i, k] = v.split(':').map(Number), w = parseWorkouts(C.msgs[i].content)[k]; if (!w) return;
+    GEN = { t:{ id:'AI', name:w.name, cat:catOfSteps(w.steps), desc:w.desc || 'Vom Coach erstellt.' }, steps:w.steps, level:1, mode:'ai', from:'#coach' };
+    location.hash = '#gen';
+  }
+  if (act === 'cauto'){ C.auto = !C.auto; save(); render(); }
+  if (act === 'aikey'){
+    const n = AI_P.find(x => x[0] === v)[1];
+    openSheet(`<h2>${n}-Key</h2><p class="small muted">Füge deinen API-Key ein. Er wird verschlüsselt übertragen und nur auf deinem Server gespeichert.</p><input id="aikin" type="password" autocomplete="off" placeholder="Key einfügen" style="height:48px;border:0;border-radius:14px;background:var(--bg);color:var(--text);font:inherit;padding:0 14px"><button class="btn lime" data-act="aisave" data-v="${v}">Sicher speichern</button>`);
+    setTimeout(() => document.getElementById('aikin')?.focus(), 50);
+  }
+  if (act === 'aisave'){
+    const key = (document.getElementById('aikin')?.value || '').trim(); if (!key) return;
+    try { await aiApi('PUT', `/api/ai/keys/${v}`, { key }); closeSheet(); toast('Key gespeichert'); await aiStatus(true); render(); } catch(err){ toast(`Nicht gespeichert: ${err.message}`); }
+  }
+  if (act === 'aidel'){
+    if (!b.dataset.ok){ openSheet(`<h2>Key löschen?</h2><p>Der Key wird von deinem Server entfernt.</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="aidel" data-ok="1" data-v="${v}" style="background:#FF6B6B;color:var(--bg)">Löschen</button></div>`); return; }
+    try { await aiApi('DELETE', `/api/ai/keys/${v}`); closeSheet(); await aiStatus(true); render(); } catch(err){ toast(err.message); }
+  }
+  if (act === 'aitop' || act === 'aisetmodel'){
+    const order = ((AIS.order && AIS.order.length) ? AIS.order : AI_P.map(p => p[0])).filter(x => x !== v);
+    const next = { order: act === 'aitop' ? [v, ...order] : (AIS.order && AIS.order.length ? AIS.order : AI_P.map(p=>p[0])), models: Object.assign({}, AIS.models || {}) };
+    if (act === 'aisetmodel') next.models[v] = b.dataset.m || undefined;
+    try { await aiApi('PUT', '/api/ai/config', next); closeSheet(); await aiStatus(true); render(); } catch(err){ toast(err.message); }
+  }
+  if (act === 'aimodel'){
+    openSheet(`<h2>Modell wählen</h2><p class="muted">Lade Modelle …</p>`);
+    try {
+      const { models } = await aiApi('GET', `/api/ai/models/${v}`);
+      const cur = (AIS.models || {})[v];
+      openSheet(`<h2>Modell wählen</h2><p class="small muted">Standard ist ein schnelles, günstiges Modell. Größere Modelle analysieren genauer, verbrauchen aber schneller Gratis-Limits.</p><div class="list"><button class="ev" data-act="aisetmodel" data-v="${v}" data-m="" style="${!cur?'outline:2px solid var(--lime)':''}">Standard</button>${models.slice(0,60).map(m => `<button class="ev" data-act="aisetmodel" data-v="${v}" data-m="${esc(m)}" style="${cur===m?'outline:2px solid var(--lime)':''}">${esc(m)}</button>`).join('')}</div>`);
+    } catch(err){ openSheet(`<h2>Modell wählen</h2><p class="note">Modelle konnten nicht geladen werden: ${esc(err.message)}</p>`); }
+  }
+});
+
 /* ---------- Sheets ---------- */
 function openSheet(html){ closeSheet(); const d=document.createElement('div'); d.className='scrim'; d.id='scrim'; d.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><span class="grab"></span>${html}</div>`; d.addEventListener('click',e=>{ if(e.target===d) closeSheet(); }); document.body.appendChild(d); }
 function closeSheet(){ const s=$('#scrim'); if(s) s.remove(); }
@@ -1970,7 +2204,7 @@ function render(){
   const h = location.hash.replace('#','') || 'heute';
   const m = h.match(/^([a-z]+)(?:-(\d+))?$/) || [null,'heute']; const r = m[1], id = m[2];
   const root = $('#root');
-  const V = { woche:viewWeek, detail:()=>viewDetail(id), form:viewForm, workouts:viewWorkouts, gen:viewGenerated, bib:()=>viewLibrary(id), ziel:viewGoal, planvorschau:viewPlanPreview };
+  const V = { woche:viewWeek, detail:()=>viewDetail(id), form:viewForm, workouts:viewWorkouts, gen:viewGenerated, bib:()=>viewLibrary(id), ziel:viewGoal, planvorschau:viewPlanPreview, coach:viewCoach, coachset:viewCoachSettings };
   root.innerHTML = `<main class="app">${(V[r]||viewToday)()}</main>`;
 }
 addEventListener('hashchange', ()=>{ closeSheet(); window.scrollTo(0,0); render(); });
@@ -1999,6 +2233,7 @@ async function init(){
     try { res = await loadLive(token); } catch(e){}
     if (res === 'auth'){ try { localStorage.removeItem('ontrack.token'); } catch(e){} $('#root').innerHTML = loginView('Der Zugangscode stimmt nicht.'); return; }
     if (res === 'err' && !SNAP.events.length){ $('#root').innerHTML = loginView('Server nicht erreichbar. Bitte später nochmal versuchen.'); return; }
+    if (typeof aiStatus === 'function') aiStatus().then(() => render());
   }
   render();
 }
