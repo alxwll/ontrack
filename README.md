@@ -9,9 +9,9 @@
 
 <p align="center">
 <img src="docs/screens/01-heute.png" width="24%" alt="Heute">
-<img src="docs/screens/04-vorschau-leichter.png" width="24%" alt="Leichter mit Vorschau">
-<img src="docs/screens/02-woche.png" width="24%" alt="Woche">
-<img src="docs/screens/07-form.png" width="24%" alt="Form">
+<img src="docs/screens/04-anpassen.png" width="24%" alt="Anpassen">
+<img src="docs/screens/02-plan.png" width="24%" alt="Plan">
+<img src="docs/screens/12-coach.png" width="24%" alt="Coach">
 </p>
 
 <p align="center"><sub>Alle Screenshots zeigen erfundene Demo-Daten.</sub></p>
@@ -22,9 +22,9 @@
 
 ☀️ **Bereitschaft statt Bauchgefühl:** 0 bis 100 aus HRV, Ruhepuls, Schlaf und Form, dazu ein Check-in für das, was die Uhr nicht weiß.
 
-🐢 **Leichter heißt schlauer:** Jede Änderung mit Vorschau. Aus VO2max-Intervallen wird ein lockerer Dauerlauf statt nur langsamer Intervalle.
+🎛️ **Anpassen mit echten Alternativen:** leichter, gleichwertig oder härter als echtes Workout, dazu Zeit-Chips. Jede Änderung mit Vorschau.
 
-🗓️ **Verschieben wie im Kalender:** lange drücken und ziehen, mit Ampel bei Kollisionen und automatischem Ausgleich.
+🗓️ **Plan wie im Kalender:** lange drücken und ziehen, mit Ampel bei Kollisionen und automatischem Ausgleich.
 
 🎲 **Train now:** Dauer wählen, die App schlägt das passende Workout vor. Dahinter stecken 37 Workouts in neun Kategorien.
 
