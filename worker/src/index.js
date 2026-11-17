@@ -138,7 +138,7 @@ const PROVIDERS = {
   openrouter:{ name: 'OpenRouter', base: 'https://openrouter.ai/api/v1' },
   anthropic: { name: 'Claude' },
 };
-const DEFAULT_MODEL = { gemini: 'gemini-2.5-flash', groq: 'openai/gpt-oss-120b', openai: 'gpt-4o-mini', openrouter: 'openrouter/auto', anthropic: 'claude-haiku-5-5' };
+const DEFAULT_MODEL = { gemini: 'gemini-flash-latest', groq: 'openai/gpt-oss-120b', openai: 'gpt-4o-mini', openrouter: 'openrouter/auto', anthropic: 'claude-haiku-5-5' };
 
 async function ai(req, url, env, cors) {
   if (!env.AI) return json({ error: 'KV-Bindung "AI" fehlt im Worker. Siehe Anleitung im README.' }, 500, cors);
@@ -149,7 +149,7 @@ async function ai(req, url, env, cors) {
   if (req.method === 'GET' && url.pathname === '/api/ai/status') {
     const out = {};
     for (const p of Object.keys(PROVIDERS)) { const k = await keyOf(p); out[p] = k ? k.slice(-4) : null; }
-    return json({ keys: out, order: conf.order || [], models: conf.models || {} }, 200, cors);
+    return json({ keys: out, order: conf.order || [], models: conf.models || {}, fallback: conf.fallback !== false }, 200, cors);
   }
   // Key speichern oder löschen
   const km = url.pathname.match(/^\/api\/ai\/keys\/(\w+)$/);
@@ -160,7 +160,7 @@ async function ai(req, url, env, cors) {
   // Reihenfolge und Modelle speichern
   if (req.method === 'PUT' && url.pathname === '/api/ai/config') {
     const b = await req.json();
-    const next = { order: (b.order || []).filter(p => PROVIDERS[p]), models: b.models || {} };
+    const next = { order: (b.order || []).filter(p => PROVIDERS[p]), models: b.models || {}, fallback: b.fallback !== false };
     await env.AI.put('config', JSON.stringify(next));
     return json({ ok: true }, 200, cors);
   }
@@ -180,8 +180,9 @@ async function ai(req, url, env, cors) {
       const model = (conf.models || {})[p] || DEFAULT_MODEL[p];
       try {
         const text = await callModel(p, k, model, system, messages);
-        return json({ text, provider: PROVIDERS[p].name, model }, 200, cors);
+        return json({ text, provider: PROVIDERS[p].name, model, skipped: errors }, 200, cors);
       } catch (e) { errors.push(`${PROVIDERS[p].name}: ${String(e.message || e).slice(0, 160)}`); }
+      if (conf.fallback === false) break;
     }
     return json({ error: errors.length ? errors.join(' | ') : 'Kein KI-Key hinterlegt' }, 502, cors);
   }
@@ -189,35 +190,41 @@ async function ai(req, url, env, cors) {
 }
 
 async function callModel(p, key, model, system, messages) {
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 45000);
+  try { return await callModelInner(p, key, model, system, messages, ctl.signal); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? 'keine Antwort nach 45 s' : (e.message || String(e))); }
+  finally { clearTimeout(timer); }
+}
+async function callModelInner(p, key, model, system, messages, signal) {
   if (p === 'gemini') {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
         generationConfig: { temperature: 0.4 },
       }),
     });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || r.status);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error?.message || `HTTP ${r.status}`);
     return (d.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
   }
   if (p === 'anthropic') {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model, max_tokens: 1200, system, messages, temperature: 0.4 }),
     });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || r.status);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error?.message || `HTTP ${r.status}`);
     return (d.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
   }
   // OpenAI-kompatibel (ChatGPT, Groq)
   const r = await fetch(`${PROVIDERS[p].base}/chat/completions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...(p === 'openrouter' ? { 'X-Title': 'On. Track' } : {}) },
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...(p === 'openrouter' ? { 'X-Title': 'On. Track' } : {}) },
     body: JSON.stringify({ model, temperature: 0.4, messages: [{ role: 'system', content: system }, ...messages] }),
   });
-  const d = await r.json();
-  if (!r.ok) throw new Error(d.error?.message || r.status);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `HTTP ${r.status}`);
   return (d.choices?.[0]?.message?.content || '').trim();
 }
 
