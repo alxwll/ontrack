@@ -1468,7 +1468,7 @@ function aiDebriefHTML(ev, act){
   if (!LIVE) return '';
   const C = coachState(), d = C.deb[act.id];
   if (d === 'pending') return `<p class="small" style="color:var(--lilac)">Coach schaut sich den Lauf an …</p>`;
-  if (d) return `<p style="line-height:1.5">${mdLite(d.text)}</p><p class="small muted">${esc(d.via || '')}</p>${d.skipped && d.skipped.length ? `<p class="small" style="color:#FF8A1F">Rückfall: ${esc(d.skipped.join(' · '))}</p>` : ''}`;
+  if (d) return `<p style="line-height:1.5">${mdLite(d.text)}</p><p class="small muted">${esc(d.via || '')}</p>${d.skipped && d.skipped.length ? `<p class="small" style="color:#FF8A1F">${esc(d.skipped.map(x => x.split(':')[0]).join(', '))} nicht erreichbar → ${esc((d.via||'').split(' · ')[0])} eingesprungen</p>` : ''}`;
   if (AIS && hasAI() && C.auto){ setTimeout(() => makeDebrief(ev.id, act.id), 0); return `<p class="small" style="color:var(--lilac)">Coach schaut sich den Lauf an …</p>`; }
   if (AIS && hasAI()) return `<button class="chip" data-act="mkdeb" data-id="${ev.id}" data-v="${act.id}" style="align-self:flex-start;color:var(--lime)">KI-Debrief erstellen</button>`;
   return '';
@@ -1493,7 +1493,7 @@ function viewCoach(){
         h += `<div style="margin-top:10px;background:var(--bg);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px"><span class="row"><b>${esc(w.name)}</b><span class="small muted">${mins(durOf(w.steps))} min · ${loadOf(w.steps)}</span></span>${profileSVG(w.steps,40)}<button class="btn lime" data-act="cwo" data-v="${i}:${k}" style="height:40px">Ansehen</button></div>`;
       });
       if (m.via) h += `<p class="small muted" style="margin-top:6px">${esc(m.via)}</p>`;
-      if (m.skipped && m.skipped.length) h += `<p class="small" style="margin-top:4px;color:#FF8A1F">Rückfall: ${esc(m.skipped.join(' · '))} → ${esc((m.via||'').split(' · ')[0])} hat übernommen</p>`;
+      if (m.skipped && m.skipped.length) h += `<p class="small" style="margin-top:4px;color:#FF8A1F">${esc(m.skipped.map(x => x.split(':')[0]).join(', '))} nicht erreichbar → ${esc((m.via||'').split(' · ')[0])} eingesprungen</p>`;
       h += `</div>`;
     }
   });
@@ -1515,12 +1515,14 @@ function viewCoachSettings(){
   const fb = AIS.fallback !== false;
   const active = order.find(p => AIS.keys[p]);
   const keyed = order.filter(x => AIS.keys[x]);
-  h += `<p class="small muted">Oben steht, wer zuerst antwortet. Mit den Pfeilen legst du die Reihenfolge fest. Klappt es beim aktiven Anbieter nicht, springt der nächste mit Key ein, wenn der Rückfall erlaubt ist.</p>
-    <button class="row" data-act="aifb" style="background:var(--bg2);border:0;border-radius:16px;padding:14px;color:var(--text);font:inherit;font-weight:700;cursor:pointer"><span>Rückfall erlaubt</span><span class="tog${fb?'':' off'}" style="font-size:20px"><i></i></span></button><section class="list">`;
+  h += `<div style="background:var(--bg2);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+      <div class="row"><span style="display:flex;align-items:center;gap:8px;font-weight:700">Ersatz-Anbieter <button class="chip" data-act="aiinfo" aria-label="Was heißt das?" aria-expanded="${!!ST.aiInfo}" style="width:26px;height:26px;padding:0;justify-content:center;color:var(--lime)">?</button></span><button data-act="aifb" aria-label="Ersatz-Anbieter ${fb?'ausschalten':'einschalten'}" style="background:none;border:0;padding:0;cursor:pointer"><span class="tog${fb?'':' off'}" style="font-size:20px"><i></i></span></button></div>
+      ${ST.aiInfo ? `<p class="small muted" style="line-height:1.45">Antwortet der oberste Anbieter nicht (z. B. Tageslimit), übernimmt automatisch der nächste mit Key. Die Reihenfolge legst du mit den Pfeilen fest. Unter der Antwort steht dann in Orange, wer eingesprungen ist.</p>` : ''}
+    </div><section class="list">`;
   for (const [i, p] of order.entries()){
     const [k, name, cost] = AI_P.find(x => x[0] === p), has = AIS.keys[k], model = (AIS.models||{})[k];
     h += `<div style="background:var(--bg2);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px;${k===active?'outline:2px solid var(--lime)':''}">
-      <span class="row"><b>${name} <span class="small muted" style="font-weight:400">· ${cost}</span></b><span style="display:flex;gap:6px;align-items:center"><span class="small" style="color:${has?'var(--lime)':'var(--lilac)'}">${has ? (k===active ? 'Aktiv' : fb ? `Rückfall ${keyed.indexOf(k)}` : 'aus') : 'kein Key'}</span><button class="chip" data-act="aimove" data-v="${k}" data-d="-1" aria-label="${name} nach oben" ${i===0?'disabled style="opacity:.3"':'style="color:var(--lilac)"'}>↑</button><button class="chip" data-act="aimove" data-v="${k}" data-d="1" aria-label="${name} nach unten" ${i===order.length-1?'disabled style="opacity:.3"':'style="color:var(--lilac)"'}>↓</button></span></span>
+      <span class="row"><b>${name} <span class="small muted" style="font-weight:400">· ${cost}</span></b><span style="display:flex;gap:6px;align-items:center"><span class="small" style="color:${has?'var(--lime)':'var(--lilac)'}">${has ? (k===active ? 'Aktiv' : fb ? `Ersatz ${keyed.indexOf(k)}` : 'aus') : 'kein Key'}</span><button class="chip" data-act="aimove" data-v="${k}" data-d="-1" aria-label="${name} nach oben" ${i===0?'disabled style="opacity:.3"':'style="color:var(--lilac)"'}>↑</button><button class="chip" data-act="aimove" data-v="${k}" data-d="1" aria-label="${name} nach unten" ${i===order.length-1?'disabled style="opacity:.3"':'style="color:var(--lilac)"'}>↓</button></span></span>
       <span class="small muted">${has ? `Key •••• ${esc(has)} · Modell ${esc(model || 'Standard')}` : 'Noch kein Key hinterlegt'}</span>
       <span style="display:flex;flex-wrap:wrap;gap:6px">
         <button class="chip" data-act="aikey" data-v="${k}" style="color:var(--lime)">${has ? 'Key ersetzen' : '+ Key'}</button>
@@ -1565,6 +1567,7 @@ document.addEventListener('click', async e => {
     if (!b.dataset.ok){ openSheet(`<h2>Key löschen?</h2><p>Der Key wird von deinem Server entfernt.</p><div class="grid2"><button class="btn ghost" data-act="dragno">Abbrechen</button><button class="btn" data-act="aidel" data-ok="1" data-v="${v}" style="background:#FF6B6B;color:var(--bg)">Löschen</button></div>`); return; }
     try { await aiApi('DELETE', `/api/ai/keys/${v}`); closeSheet(); await aiStatus(true); render(); } catch(err){ toast(err.message); }
   }
+  if (act === 'aiinfo'){ ST.aiInfo = !ST.aiInfo; render(); return; }
   if (act === 'aimove' || act === 'aifb'){
     let order = (AIS.order && AIS.order.length) ? [...AIS.order] : AI_P.map(p => p[0]);
     order = [...order, ...AI_P.map(p => p[0]).filter(p => !order.includes(p))];
