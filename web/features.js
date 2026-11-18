@@ -1201,23 +1201,30 @@ function adjustSheet(id){
   }
   const { A } = ADJ, pct = l => { const d = Math.round((l / A.L0 - 1) * 100); return Math.abs(d) < 5 ? '±0 %' : `<span style="color:${d<0?'var(--lime)':'#FF8A1F'}">${d>0?'+':''}${d} %</span>`; };
   let h = `<h2>Heute anpassen</h2><p class="small muted">Original: ${esc(A.o.name)} · ${mins(A.o.dur)} min · Belastung ${A.o.load}</p>`;
-  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:4px">INTENSITÄT</p>`;
-  for (const [k, label, x] of A.opts){
+  // Zeit-Slider: startet auf der Originaldauer, 5-Minuten-Raster, Markierung fürs Original
+  const M = A.M, lo = 20, isLongRun = M >= 75 || /lang/i.test(A.o.name);
+  const hi = Math.max(M + 10, Math.min(isLongRun ? 150 : 120, Math.round(M * 1.5 / 5) * 5));
+  const T = ADJ.time || M, pos = v => ((v - lo) / (hi - lo) * 100).toFixed(1);
+  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:4px">ZEIT</p>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div class="row" style="align-items:baseline"><span><b id="adjT" style="font-family:var(--display);font-size:28px;color:${T===M?'var(--text)':'var(--lime)'}">${T}</b> <b>min</b></span><span class="small muted">Original ${M}′</span></div>
+      <div style="position:relative;padding-top:4px">
+        <input id="adjSlider" type="range" min="${lo}" max="${hi}" step="1" value="${T}" data-m="${M}" aria-label="Dauer in Minuten" style="width:100%;accent-color:var(--lime)">
+        <button data-act="adjorig" aria-label="Zurück auf Original ${M} Minuten" style="position:absolute;left:calc(${pos(M)}% + ${(0.5 - (M-lo)/(hi-lo)) * 18}px);top:30px;transform:translateX(-50%);background:none;border:0;padding:0;color:var(--lilac);font:inherit;font-size:12px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center"><span style="width:2px;height:8px;background:var(--lilac);border-radius:2px"></span>${M}′</button>
+      </div>
+      <div class="row small muted" style="margin-top:14px"><span>${lo}′</span><span>${hi}′</span></div>
+      <p class="small muted">Kürzer: erst Ein- und Auslaufen, dann Wiederholungen. Länger: mehr lockerer Umfang, der Kern bleibt.</p>
+    </div>`;
+  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:8px">INTENSITÄT${ADJ.time ? ` · AUF ${ADJ.time} MIN` : ''}</p>`;
+  for (const [k, label, x0] of A.opts){
     const sel = ADJ.pick === k;
+    const st = ADJ.time ? trimSteps(x0.steps, ADJ.time) : x0.steps, x = { t:x0.t, steps:st, load:loadOf(st), dur:durOf(st) };
     h += `<button class="ev" data-act="adjpick" data-v="${k}" style="flex-direction:column;align-items:stretch;gap:8px;background:rgba(26,8,64,.45);${sel?'outline:2px solid var(--lime)':''}">
       <span class="row"><b>${label}</b>${A.rec === k ? '<span class="small" style="background:var(--lime);color:var(--bg);padding:2px 8px;border-radius:99px;font-weight:700">Empfohlen</span>' : sel ? '<span class="small" style="color:var(--lime)">✓ gewählt</span>' : ''}</span>
       <span class="row"><span>${esc(x.t.name)}</span><span class="small muted">${mins(x.dur)} min · ${x.load} · ${pct(x.load)}</span></span>
       <span style="display:block;background:var(--bg);border-radius:10px;padding:6px">${profileSVG(x.steps,36)}</span></button>`;
   }
   if (ADJ.pick) h += `<button class="chip" data-act="adjpick" data-v="" style="align-self:flex-start;color:var(--lilac)">Original-Training behalten</button>`;
-  // Zeit-Chips: nur Stufen, die wirklich etwas ändern (der Kern setzt eine Untergrenze)
-  const x0 = ADJ.pick && A.opts.find(o => o[0] === ADJ.pick), sw0 = x0 ? { tpl:x0[2].t.id, lvl:x0[2].lvl } : null;
-  const M = A.M, seen = new Set(), times = [null];
-  for (const t of [45,30,20].filter(t => t < M - 4)){ const d = mins(tryChange(id, { variant:null, swap:sw0, time:t }).dur); if (!seen.has(d) && d < M - 3){ seen.add(d); times.push(t); } }
-  times.push(M + 15);
-  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:8px">ZEIT</p>
-    <div style="display:flex;flex-wrap:wrap;gap:6px">${times.map(t => `<button class="chip" data-act="adjtime" data-v="${t ?? ''}" style="${ADJ.time === t ? 'background:var(--lime);color:var(--bg)' : 'color:var(--lilac)'}">${t == null ? 'Original' : t > M ? '+15′' : t + '′'}</button>`).join('')}</div>
-    <p class="small muted">Der Kern bleibt. Gekürzt wird zuerst beim Ein- und Auslaufen, erst dann fallen Wiederholungen weg.</p>`;
   h += `<button class="btn lime" data-act="adjprev">Vorschau ansehen</button>`;
   h += `<button data-act="pswap" data-id="${id}" style="display:flex;align-items:center;gap:12px;width:100%;border:0;border-radius:16px;background:rgba(26,8,64,.45);color:var(--text);font:inherit;padding:12px;cursor:pointer;text-align:left">
     <span aria-hidden="true" style="width:40px;height:40px;border-radius:12px;background:var(--lime);color:var(--bg);display:flex;align-items:center;justify-content:center;flex:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4v16H5z"></path><path d="M9 4h4v16H9z"></path><path d="M14.5 5.5l3.8-1 3.2 14.5-3.8 1z"></path></svg></span>
@@ -1232,6 +1239,7 @@ document.addEventListener('click', e => {
   if (act === 'adjust'){ ADJ = null; adjustSheet(id); }
   if (act === 'adjpick' && ADJ){ ADJ.pick = v || null; adjustSheet(ADJ.id); }
   if (act === 'adjtime' && ADJ){ ADJ.time = v ? Number(v) : null; adjustSheet(ADJ.id); }
+  if (act === 'adjorig' && ADJ){ ADJ.time = null; keepSheetScroll(() => adjustSheet(ADJ.id)); }
   if (act === 'adjprev' && ADJ){
     const x = ADJ.pick && ADJ.A.opts.find(o => o[0] === ADJ.pick);
     previewSheet(ADJ.id, { variant:null, swap: x ? { tpl:x[2].t.id, lvl:x[2].lvl } : null, time: ADJ.time }, 'Heute anpassen');
@@ -1589,4 +1597,19 @@ document.addEventListener('click', async e => {
       openSheet(`<h2>Modell wählen</h2><p class="small muted">Standard ist ein schnelles, günstiges Modell. Größere Modelle analysieren genauer, verbrauchen aber schneller Gratis-Limits.</p><div class="list"><button class="ev" data-act="aisetmodel" data-v="${v}" data-m="" style="${!cur?'outline:2px solid var(--lime)':''}">Standard</button>${models.slice(0,120).map(m => `<button class="ev" data-act="aisetmodel" data-v="${v}" data-m="${esc(m)}" style="${cur===m?'outline:2px solid var(--lime)':''}">${esc(m.replace(/:free$/,''))}${m.endsWith(':free')?' <span class="small" style="color:var(--lime);font-weight:700">gratis</span>':''}</button>`).join('')}</div>`);
     } catch(err){ openSheet(`<h2>Modell wählen</h2><p class="note">Modelle konnten nicht geladen werden: ${esc(err.message)}</p>`); }
   }
+});
+
+// Zeit-Slider: beim Ziehen nur die Zahl, beim Loslassen Karten neu rechnen
+function snapMin(v, M){ v = Number(v); return Math.abs(v - M) <= 2 ? M : Math.round(v / 5) * 5; }
+function keepSheetScroll(fn){ const sh = document.querySelector('.sheet'), y = sh ? sh.scrollTop : 0; fn(); const n = document.querySelector('.sheet'); if (n) n.scrollTop = y; }
+document.addEventListener('input', e => {
+  if (e.target.id !== 'adjSlider') return;
+  const M = Number(e.target.dataset.m), v = snapMin(e.target.value, M), t = document.getElementById('adjT');
+  if (t){ t.textContent = v; t.style.color = v === M ? 'var(--text)' : 'var(--lime)'; }
+});
+document.addEventListener('change', e => {
+  if (e.target.id !== 'adjSlider' || !ADJ) return;
+  const M = Number(e.target.dataset.m), v = snapMin(e.target.value, M);
+  ADJ.time = v === M ? null : v;
+  keepSheetScroll(() => adjustSheet(ADJ.id));
 });
