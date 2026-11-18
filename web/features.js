@@ -1480,10 +1480,14 @@ function aiDebriefHTML(ev, act){
   if (!LIVE) return '';
   const C = coachState(), d = C.deb[act.id];
   if (d === 'pending') return `<p class="small" style="color:var(--lilac)">Coach schaut sich den Lauf an …</p>`;
-  if (d) return `<p style="line-height:1.5">${mdLite(d.text)}</p><p class="small muted">${esc(d.via || '')}</p>${d.skipped && d.skipped.length ? `<p class="small" style="color:#FF8A1F">${esc(d.skipped.map(x => x.split(':')[0]).join(', '))} nicht erreichbar → ${esc((d.via||'').split(' · ')[0])} eingesprungen</p>` : ''}`;
+  if (d) return `<p style="line-height:1.5">${mdLite(d.text)}</p><p class="small muted">${esc(d.via || '')}</p>${d.skipped && d.skipped.length ? skippedHTML(d.skipped, d.via) : ''}`;
   if (AIS && hasAI() && C.auto){ setTimeout(() => makeDebrief(ev.id, act.id), 0); return `<p class="small" style="color:var(--lilac)">Coach schaut sich den Lauf an …</p>`; }
   if (AIS && hasAI()) return `<button class="chip" data-act="mkdeb" data-id="${ev.id}" data-v="${act.id}" style="align-self:flex-start;color:var(--lime)">KI-Debrief erstellen</button>`;
   return '';
+}
+// Ersatz-Hinweis: kurz, antippen zeigt den echten Grund
+function skippedHTML(sk, via){
+  return `<details style="margin-top:4px;color:#FF8A1F"><summary class="small" style="cursor:pointer;list-style:none">${esc(sk.map(x => x.split(':')[0]).join(', '))} nicht erreichbar → ${esc((via||'').split(' · ')[0])} eingesprungen <span style="text-decoration:underline">Grund</span></summary>${sk.map(x => `<p class="small" style="margin-top:4px;color:var(--lilac);word-break:break-word">${esc(x)}</p>`).join('')}</details>`;
 }
 function viewCoach(){
   const C = coachState();
@@ -1505,7 +1509,7 @@ function viewCoach(){
         h += `<div style="margin-top:10px;background:var(--bg);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px"><span class="row"><b>${esc(w.name)}</b><span class="small muted">${mins(durOf(w.steps))} min · ${loadOf(w.steps)}</span></span>${profileSVG(w.steps,40)}<button class="btn lime" data-act="cwo" data-v="${i}:${k}" style="height:40px">Ansehen</button></div>`;
       });
       if (m.via) h += `<p class="small muted" style="margin-top:6px">${esc(m.via)}</p>`;
-      if (m.skipped && m.skipped.length) h += `<p class="small" style="margin-top:4px;color:#FF8A1F">${esc(m.skipped.map(x => x.split(':')[0]).join(', '))} nicht erreichbar → ${esc((m.via||'').split(' · ')[0])} eingesprungen</p>`;
+      if (m.skipped && m.skipped.length) h += skippedHTML(m.skipped, m.via);
       h += `</div>`;
     }
   });

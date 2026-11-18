@@ -365,6 +365,9 @@ function profileSVG(steps, h, opts={}){
     x += w;
   }
   let line = '', hits = '';
+  PFB = [];
+  const durTxt = d => d < 90 ? `${d} s` : `${Math.round(d/60*2)/2} min`.replace('.5', ',5');
+  const avgIn = {};
   if (opts.stream){
     const pts = opts.stream.filter(r=>r[1]>0.5);
     const tEnd = Math.max(...opts.stream.map(r=>r[0])) || total;
@@ -377,8 +380,7 @@ function profileSVG(steps, h, opts={}){
     const smooth = sm.map(r => xy(r[0]/tEnd*W, r[1])).join(' ');
     line = `<polyline fill="none" stroke="#C9B6FF" stroke-opacity=".4" stroke-width="1.2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${raw}"></polyline>`
          + `<polyline fill="none" stroke="#2A0F5C" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" points="${smooth}"></polyline><polyline fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" points="${smooth}"></polyline>`;
-    // Abschnitts-Schnitt gestrichelt (ab 1 min), Antippen zeigt Ø und Ziel
-    PFB = [];
+    // Abschnitts-Schnitt gestrichelt (ab 2,5 min), Antippen zeigt Ø und Ziel
     blocks.forEach((b, i) => {
       if (b.s.duration < 150 || !b.s.pace) return;
       const inB = sm.filter(r => { const px = r[0]/tEnd*W; return px >= b.x0 && px <= b.x1; });
@@ -388,12 +390,22 @@ function profileSVG(steps, h, opts={}){
       const ok = pct >= lo - 2 && pct <= hi + 2;
       const y = (H - hOf(pct)).toFixed(1);
       line += `<line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#2A0F5C" stroke-width="5" vector-effect="non-scaling-stroke"></line><line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#D7FF3D" stroke-width="2.5" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"></line>`;
-      PFB.push({ xc: (b.x0+b.x1)/2/W*100, txt: `Ø ${paceStr(v)} · Ziel ${pctToPace(hi)}–${pctToPace(lo)} ${ok ? '✓' : pct > hi + 2 ? '· zu schnell' : '· zu langsam'}`, ok });
-      hits += `<rect data-act="pfb" data-v="${PFB.length-1}" x="${b.x0.toFixed(1)}" y="0" width="${(b.x1-b.x0).toFixed(1)}" height="${H}" fill="transparent" style="cursor:pointer"></rect>`;
+      avgIn[i] = { v, ok, pct, hi };
+    });
+  }
+  // Antippbare Blöcke: Dauer und Pace-Spanne, bei gelaufenen Einheiten plus Schnitt
+  if (opts.tap){
+    blocks.forEach((b, i) => {
+      const s = b.s; if (!s.pace) return;
+      const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end), a = avgIn[i];
+      let txt = `${durTxt(s.duration)} · ${pctToPace(hi)}–${pctToPace(lo)} /km`;
+      if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
+      PFB.push({ xc: (b.x0+b.x1)/2/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
+      hits += `<rect data-act="pfb" data-v="${PFB.length-1}" x="${b.x0.toFixed(1)}" y="0" width="${Math.max(4, b.x1-b.x0).toFixed(1)}" height="${H}" fill="transparent" style="cursor:pointer"></rect>`;
     });
   }
   const svg = `<svg width="100%" height="${h}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Profil der Einheit">${rects}${line}${hits}</svg>`;
-  return opts.stream ? `<div style="position:relative">${svg}<div id="pfpill" aria-live="polite"></div></div>` : svg;
+  return opts.tap ? `<div style="position:relative">${svg}<div id="pfpill" aria-live="polite"></div></div>` : svg;
 }
 function legendHTML(){ return `<div class="legend">${ZONES.map((z,i)=>`<span><i style="${i===0?`border:2px solid ${z.hex};box-sizing:border-box`:`background:${z.hex}`}"></i>${z.name}</span>`).join('')}</div>`; }
 
@@ -527,7 +539,7 @@ function viewDetail(id){
   if (ev.modified && st.s!=='done') h += modBanner(ev);
   if (ev.steps.length && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (ev.steps.length){
-    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt, antippen für Details.</p>':''}</section>`;
+    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Block antippen für Dauer und Pace.</p></section>`;
   }
   if (st.s==='done' && st.act){
     const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
@@ -706,7 +718,7 @@ document.addEventListener('click', e => {
   if (!r){ if (!e.target.closest('#pfpill')) pill.innerHTML = ''; return; }
   const b = PFB[Number(r.dataset.v)]; if (!b) return;
   const left = Math.min(78, Math.max(22, b.xc));
-  pill.innerHTML = `<span style="position:absolute;top:-6px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px;padding:6px 12px;border-radius:99px;box-shadow:0 4px 14px rgba(0,0,0,.35)">${b.txt}</span>`;
+  pill.innerHTML = `<span style="position:absolute;top:-6px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);border-radius:14px;padding:6px 12px;box-shadow:0 4px 14px rgba(0,0,0,.35);display:flex;flex-direction:column;align-items:center;gap:1px"><span class="small" style="color:var(--lilac);font-weight:700">${b.name}</span><span style="color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px">${b.txt}</span></span>`;
 });
 </script>
 </body>
