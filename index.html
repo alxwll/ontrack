@@ -340,13 +340,16 @@ function weekInfo(mon){
 }
 
 /* ---------- Grafiken ---------- */
+let PFB = [];
 function profileSVG(steps, h, opts={}){
   const total = steps.reduce((a,s)=>a+(s.duration||0),0);
   if (!total) return '';
   const W = 350, H = 140, gap = 2;
   let x = 0, rects = '';
   const hOf = p => Math.max(18, Math.min(1, (p-55)/(110-55)) * H);
+  const blocks = [];
   for (const s of steps){
+    blocks.push({ x0:x, x1:x+Math.max(1,(s.duration/total)*W-gap), s });
     const w = (s.duration/total)*W, p = stepPct(s), hh = hOf(p), z = zoneOf(p);
     const hollow = z === ZONES[0];
     const ww = Math.max(1,w-gap);
@@ -361,14 +364,36 @@ function profileSVG(steps, h, opts={}){
       : `<rect x="${x.toFixed(1)}" y="${(H-hh).toFixed(1)}" width="${ww.toFixed(1)}" height="${hh.toFixed(1)}" rx="4" fill="${z.hex}"${opts.faded?' fill-opacity="0.8"':''}></rect>`;
     x += w;
   }
-  let line = '';
+  let line = '', hits = '';
   if (opts.stream){
     const pts = opts.stream.filter(r=>r[1]>0.5);
     const tEnd = Math.max(...opts.stream.map(r=>r[0])) || total;
-    const pp = pts.map(r=>{ const px=(r[0]/tEnd)*W, pct=r[1]/THR*100; return `${px.toFixed(1)},${(H-hOf(pct)).toFixed(1)}`; }).join(' ');
-    line = `<polyline fill="none" stroke="#2A0F5C" stroke-width="5" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${pp}"></polyline><polyline fill="none" stroke="#F1EAFF" stroke-width="2.2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${pp}"></polyline>`;
+    const xy = (px, v) => `${px.toFixed(1)},${(H-hOf(v/THR*100)).toFixed(1)}`;
+    // Rohdaten blass
+    const raw = pts.map(r => xy(r[0]/tEnd*W, r[1])).join(' ');
+    // Geglättet: gleitender Median (~100 s) gegen GPS-Aussetzer, danach leicht gemittelt
+    const med = pts.map((r,i) => { const w = pts.slice(Math.max(0,i-2), i+3).map(q=>q[1]).sort((a,b)=>a-b); return [r[0], w[Math.floor(w.length/2)]]; });
+    const sm = med.map((r,i) => { const w = med.slice(Math.max(0,i-1), i+2); return [r[0], w.reduce((a,q)=>a+q[1],0)/w.length]; });
+    const smooth = sm.map(r => xy(r[0]/tEnd*W, r[1])).join(' ');
+    line = `<polyline fill="none" stroke="#C9B6FF" stroke-opacity=".4" stroke-width="1.2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${raw}"></polyline>`
+         + `<polyline fill="none" stroke="#2A0F5C" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" points="${smooth}"></polyline><polyline fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" points="${smooth}"></polyline>`;
+    // Abschnitts-Schnitt gestrichelt (ab 1 min), Antippen zeigt Ø und Ziel
+    PFB = [];
+    blocks.forEach((b, i) => {
+      if (b.s.duration < 150 || !b.s.pace) return;
+      const inB = sm.filter(r => { const px = r[0]/tEnd*W; return px >= b.x0 && px <= b.x1; });
+      if (inB.length < 2) return;
+      const v = inB.reduce((a,r)=>a+r[1],0)/inB.length, pct = v/THR*100;
+      const lo = Math.min(b.s.pace.start, b.s.pace.end), hi = Math.max(b.s.pace.start, b.s.pace.end);
+      const ok = pct >= lo - 2 && pct <= hi + 2;
+      const y = (H - hOf(pct)).toFixed(1);
+      line += `<line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#2A0F5C" stroke-width="5" vector-effect="non-scaling-stroke"></line><line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#D7FF3D" stroke-width="2.5" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"></line>`;
+      PFB.push({ xc: (b.x0+b.x1)/2/W*100, txt: `Ø ${paceStr(v)} · Ziel ${pctToPace(hi)}–${pctToPace(lo)} ${ok ? '✓' : pct > hi + 2 ? '· zu schnell' : '· zu langsam'}`, ok });
+      hits += `<rect data-act="pfb" data-v="${PFB.length-1}" x="${b.x0.toFixed(1)}" y="0" width="${(b.x1-b.x0).toFixed(1)}" height="${H}" fill="transparent" style="cursor:pointer"></rect>`;
+    });
   }
-  return `<svg width="100%" height="${h}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Profil der Einheit">${rects}${line}</svg>`;
+  const svg = `<svg width="100%" height="${h}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Profil der Einheit">${rects}${line}${hits}</svg>`;
+  return opts.stream ? `<div style="position:relative">${svg}<div id="pfpill" aria-live="polite"></div></div>` : svg;
 }
 function legendHTML(){ return `<div class="legend">${ZONES.map((z,i)=>`<span><i style="${i===0?`border:2px solid ${z.hex};box-sizing:border-box`:`background:${z.hex}`}"></i>${z.name}</span>`).join('')}</div>`; }
 
@@ -502,7 +527,7 @@ function viewDetail(id){
   if (ev.modified && st.s!=='done') h += modBanner(ev);
   if (ev.steps.length && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (ev.steps.length){
-    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Helle Linie: deine tatsächliche Pace</p>':''}</section>`;
+    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream})}${legendHTML()}${stream?'<p class="small muted">Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt, antippen für Details.</p>':''}</section>`;
   }
   if (st.s==='done' && st.act){
     const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
@@ -2292,6 +2317,16 @@ document.addEventListener('submit', e => {
   init();
 });
 init();
+</script>
+<script>
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-act="pfb"]'); const pill = document.getElementById('pfpill');
+  if (!pill) return;
+  if (!r){ if (!e.target.closest('#pfpill')) pill.innerHTML = ''; return; }
+  const b = PFB[Number(r.dataset.v)]; if (!b) return;
+  const left = Math.min(78, Math.max(22, b.xc));
+  pill.innerHTML = `<span style="position:absolute;top:-6px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px;padding:6px 12px;border-radius:99px;box-shadow:0 4px 14px rgba(0,0,0,.35)">${b.txt}</span>`;
+});
 </script>
 </body>
 </html>
