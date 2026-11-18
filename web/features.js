@@ -1286,16 +1286,19 @@ function previewSheet(id, change, title){
   h += `<div class="grid2"><button class="btn ghost" data-act="pcancel">Abbrechen</button><button class="btn lime" data-act="papply">Übernehmen</button></div>`;
   openSheet(h);
 }
+// Zeit aus dem Anpassen-Sheet gilt auch für die Bibliothek
+function swapTime(id){ return ADJ && String(ADJ.id) === String(id) ? ADJ.time : ((ST.time || {})[id] || null); }
 function planSwapSheet(id, cat){
+  const T = swapTime(id);
   const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw) return;
   const ev = buildEvent(raw);
   const curCat = ev.swapped ? LIB.find(t=>t.id===ev.swapped).cat : (CATS.find(c => c.name === ev.cat.name) || CATS[1]).key;
   cat = cat || curCat;
-  let h = `<h2>Training tauschen</h2><p class="small muted">Alle auf ${mins(ev.baseDur)} min angepasst · ${nice(ev.date)}</p>`;
+  let h = `<h2>Training tauschen</h2><div class="row"><span class="small muted">Alle auf <b style="color:${T?'var(--lime)':'var(--text)'}">${T || mins(ev.baseDur)} min</b> · ${nice(ev.date)}</span><button class="chip" data-act="adjback" data-id="${id}" style="color:var(--lime)">Zeit ändern</button></div>`;
   h += `<div class="catrow" style="display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px">${CATS.map(c => `<button class="chip" data-act="pswapcat" data-id="${id}" data-v="${c.key}" style="flex:none;${c.key===cat?`background:${c.col};color:var(--bg)`:'color:var(--lilac)'}">${c.name}</button>`).join('')}</div>`;
   h += `<div class="list">`;
   for (const t of LIB.filter(x => x.cat === cat)){
-    const cand = tryChange(id, { swap:{ tpl:t.id } });
+    const cand = tryChange(id, { variant:null, swap:{ tpl:t.id }, time:T });
     const cur = ev.swapped === t.id;
     h += `<button class="ev" data-act="pswappick" data-id="${id}" data-v="${t.id}" style="flex-direction:column;align-items:stretch;gap:8px;${cur?'outline:2px solid var(--lime)':''}">
       <span class="row"><span class="n" style="font-weight:700">${esc(t.name)}</span><span class="small muted">${cur?'aktuell · ':''}${mins(cand.dur)} min · ${cand.load}</span></span>
@@ -1327,7 +1330,8 @@ document.addEventListener('click', e => {
   }
   if (act === 'pswap') planSwapSheet(id);
   if (act === 'pswapcat') planSwapSheet(id, v);
-  if (act === 'pswappick') previewSheet(id, { swap:{ tpl:v } }, 'Training tauschen');
+  if (act === 'pswappick') previewSheet(id, { variant:null, swap:{ tpl:v }, time: swapTime(id) }, 'Training tauschen');
+  if (act === 'adjback'){ if (!ADJ || String(ADJ.id) !== String(id)) ADJ = null; adjustSheet(id); }
   if (act === 'pcancel'){ PENDING = null; closeSheet(); }
   if (act === 'papply' && PENDING){ const P = PENDING; PENDING = null; applyChange(P.id, P.change); }
   if (act === 'restore'){
