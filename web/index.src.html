@@ -400,7 +400,7 @@ function profileSVG(steps, h, opts={}){
       const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end), a = avgIn[i];
       let txt = `${durTxt(s.duration)} · ${pctToPace(hi)}–${pctToPace(lo)} /km`;
       if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
-      PFB.push({ x0: b.x0/W*100, x1: (b.x1+gap)/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
+      PFB.push({ si: i, x0: b.x0/W*100, x1: (b.x1+gap)/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
     });
   }
   const svg = `<svg width="100%" height="${h}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Profil der Einheit">${rects}${line}${hits}</svg>`;
@@ -547,7 +547,7 @@ function viewDetail(id){
   }
   if (ev.steps.length){
     h += `<section class="steps"><h2 style="margin-bottom:6px">Ablauf</h2>`;
-    for (const s of compress(ev.steps)) h += stepRow(s);
+    let si = 0; for (const s of compress(ev.steps)){ h += stepRow(s).replace('<div class="s">', `<div class="s" data-si="${si}" style="cursor:pointer;border-radius:12px">`); si += s.pair ? 2*s.n : s.n; }
     h += `</section>`;
   }
   if (st.s!=='done') h += `<p class="note">${esc(coachLine(ev))}</p><div class="grid2"><button class="btn ghost" data-act="menu" data-id="${ev.id}">Anpassen</button><button class="btn lime" data-act="noop">Auf der Uhr</button></div>`;
@@ -711,20 +711,39 @@ document.addEventListener('submit', e => {
 init();
 </script>
 <script>
-// Profil-Scrubber: antippen oder ziehen, gestrichelte Linie bleibt stehen
+// Profil-Scrubber: antippen oder ziehen, Liste im Ablauf setzt die Linie, Tipp daneben blendet aus
 (() => {
   let drag = null;
+  const pillHTML = (b, left) => `<span style="position:absolute;top:-8px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);border-radius:14px;padding:6px 12px;box-shadow:0 4px 14px rgba(0,0,0,.35);display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none"><span class="small" style="color:var(--lilac);font-weight:700">${b.name}</span><span style="color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px">${b.txt}</span></span>`;
+  const mark = b => document.querySelectorAll('.steps [data-si]').forEach(row => {
+    const si = Number(row.dataset.si), next = row.nextElementSibling && row.nextElementSibling.dataset.si != null ? Number(row.nextElementSibling.dataset.si) : 1e9;
+    row.style.background = b && b.si >= si && b.si < next ? 'rgba(215,255,61,.10)' : '';
+  });
+  const place = (box, x, b) => {
+    const cur = box.querySelector('#pfcur'), pill = box.querySelector('#pfpill');
+    cur.style.display = 'block'; cur.style.left = x + '%';
+    pill.innerHTML = pillHTML(b, Math.min(80, Math.max(20, x))); mark(b);
+  };
+  const hide = () => { const box = document.querySelector('[data-pf]'); if (!box) return; box.querySelector('#pfcur').style.display = 'none'; box.querySelector('#pfpill').innerHTML = ''; mark(null); };
   const show = (box, clientX) => {
     if (!PFB.length) return;
     const r = box.getBoundingClientRect(), x = Math.max(0, Math.min(100, (clientX - r.left) / r.width * 100));
     let b = PFB.find(q => x >= q.x0 && x <= q.x1);
     if (!b) b = PFB.reduce((m, q) => Math.abs((q.x0+q.x1)/2 - x) < Math.abs((m.x0+m.x1)/2 - x) ? q : m);
-    const cur = box.querySelector('#pfcur'), pill = box.querySelector('#pfpill');
-    cur.style.display = 'block'; cur.style.left = x + '%';
-    const left = Math.min(80, Math.max(20, x));
-    pill.innerHTML = `<span style="position:absolute;top:-8px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);border-radius:14px;padding:6px 12px;box-shadow:0 4px 14px rgba(0,0,0,.35);display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none"><span class="small" style="color:var(--lilac);font-weight:700">${b.name}</span><span style="color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px">${b.txt}</span></span>`;
+    place(box, x, b);
   };
-  document.addEventListener('pointerdown', e => { const box = e.target.closest('[data-pf]'); if (!box) return; drag = { box, id: e.pointerId }; show(box, e.clientX); });
+  document.addEventListener('pointerdown', e => {
+    const box = e.target.closest('[data-pf]');
+    if (box){ drag = { box, id: e.pointerId }; show(box, e.clientX); return; }
+    const row = e.target.closest('.steps [data-si]'), pbox = document.querySelector('[data-pf]');
+    if (row && pbox && PFB.length){
+      const si = Number(row.dataset.si), b = PFB.find(q => q.si >= si) || PFB[PFB.length-1];
+      place(pbox, (b.x0 + b.x1) / 2, b);
+      pbox.scrollIntoView({ block:'nearest', behavior:'smooth' });
+      return;
+    }
+    if (!e.target.closest('#pfpill')) hide();
+  });
   document.addEventListener('pointermove', e => { if (drag && e.pointerId === drag.id) show(drag.box, e.clientX); });
   const end = e => { if (drag && e.pointerId === drag.id) drag = null; };
   document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
