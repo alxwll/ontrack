@@ -400,12 +400,11 @@ function profileSVG(steps, h, opts={}){
       const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end), a = avgIn[i];
       let txt = `${durTxt(s.duration)} · ${pctToPace(hi)}–${pctToPace(lo)} /km`;
       if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
-      PFB.push({ xc: (b.x0+b.x1)/2/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
-      hits += `<rect data-act="pfb" data-v="${PFB.length-1}" x="${b.x0.toFixed(1)}" y="0" width="${Math.max(4, b.x1-b.x0).toFixed(1)}" height="${H}" fill="transparent" style="cursor:pointer"></rect>`;
+      PFB.push({ x0: b.x0/W*100, x1: (b.x1+gap)/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
     });
   }
   const svg = `<svg width="100%" height="${h}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Profil der Einheit">${rects}${line}${hits}</svg>`;
-  return opts.tap ? `<div style="position:relative">${svg}<div id="pfpill" aria-live="polite"></div></div>` : svg;
+  return opts.tap ? `<div data-pf style="position:relative;touch-action:pan-y;-webkit-tap-highlight-color:transparent;cursor:ew-resize;user-select:none">${svg}<div id="pfcur" style="display:none;position:absolute;top:-4px;bottom:0;width:0;border-left:2.5px dashed var(--lime);pointer-events:none"></div><div id="pfpill" aria-live="polite"></div></div>` : svg;
 }
 function legendHTML(){ return `<div class="legend">${ZONES.map((z,i)=>`<span><i style="${i===0?`border:2px solid ${z.hex};box-sizing:border-box`:`background:${z.hex}`}"></i>${z.name}</span>`).join('')}</div>`; }
 
@@ -539,7 +538,7 @@ function viewDetail(id){
   if (ev.modified && st.s!=='done') h += modBanner(ev);
   if (ev.steps.length && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (ev.steps.length){
-    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Block antippen für Dauer und Pace.</p></section>`;
+    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Antippen oder mit dem Finger ziehen für Dauer und Pace.</p></section>`;
   }
   if (st.s==='done' && st.act){
     const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
@@ -712,14 +711,24 @@ document.addEventListener('submit', e => {
 init();
 </script>
 <script>
-document.addEventListener('click', e => {
-  const r = e.target.closest('[data-act="pfb"]'); const pill = document.getElementById('pfpill');
-  if (!pill) return;
-  if (!r){ if (!e.target.closest('#pfpill')) pill.innerHTML = ''; return; }
-  const b = PFB[Number(r.dataset.v)]; if (!b) return;
-  const left = Math.min(78, Math.max(22, b.xc));
-  pill.innerHTML = `<span style="position:absolute;top:-6px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);border-radius:14px;padding:6px 12px;box-shadow:0 4px 14px rgba(0,0,0,.35);display:flex;flex-direction:column;align-items:center;gap:1px"><span class="small" style="color:var(--lilac);font-weight:700">${b.name}</span><span style="color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px">${b.txt}</span></span>`;
-});
+// Profil-Scrubber: antippen oder ziehen, gestrichelte Linie bleibt stehen
+(() => {
+  let drag = null;
+  const show = (box, clientX) => {
+    if (!PFB.length) return;
+    const r = box.getBoundingClientRect(), x = Math.max(0, Math.min(100, (clientX - r.left) / r.width * 100));
+    let b = PFB.find(q => x >= q.x0 && x <= q.x1);
+    if (!b) b = PFB.reduce((m, q) => Math.abs((q.x0+q.x1)/2 - x) < Math.abs((m.x0+m.x1)/2 - x) ? q : m);
+    const cur = box.querySelector('#pfcur'), pill = box.querySelector('#pfpill');
+    cur.style.display = 'block'; cur.style.left = x + '%';
+    const left = Math.min(80, Math.max(20, x));
+    pill.innerHTML = `<span style="position:absolute;top:-8px;left:${left}%;transform:translate(-50%,-100%);white-space:nowrap;background:var(--bg);border-radius:14px;padding:6px 12px;box-shadow:0 4px 14px rgba(0,0,0,.35);display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none"><span class="small" style="color:var(--lilac);font-weight:700">${b.name}</span><span style="color:${b.ok?'var(--lime)':'#FF8A1F'};font-weight:700;font-size:13px">${b.txt}</span></span>`;
+  };
+  document.addEventListener('pointerdown', e => { const box = e.target.closest('[data-pf]'); if (!box) return; drag = { box, id: e.pointerId }; show(box, e.clientX); });
+  document.addEventListener('pointermove', e => { if (drag && e.pointerId === drag.id) show(drag.box, e.clientX); });
+  const end = e => { if (drag && e.pointerId === drag.id) drag = null; };
+  document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+})();
 </script>
 </body>
 </html>
