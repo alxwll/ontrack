@@ -855,16 +855,31 @@ document.addEventListener('click', e => {
 /* ---------- Woche: durchgehende Ansicht über mehrere Wochen ---------- */
 let showPrevWeek = false;
 function lastPlanDate(){ return SNAP.events.map(e=>dateOf(e.start_date_local)).sort().pop() || TODAY; }
+// Sport-Icons für ungeplante Aktivitäten
+function sportIcon(type){
+  const t = String(type || '');
+  const P = /Ride|Cycl|Bike/i.test(t) ? '<circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-7h5l3 7M10 9l-1.5-3H6.5M15 9l-1-2.5h2.5"/>'
+    : /Weight|Strength|Workout|Crossfit|Hiit/i.test(t) ? '<path d="M3 10v4M6 8v8M18 8v8M21 10v4M6 12h12"/>'
+    : /Swim/i.test(t) ? '<path d="M2.5 17c2 0 2-1.5 4-1.5s2 1.5 4 1.5 2-1.5 4-1.5 2 1.5 4 1.5 2-1.5 3-1.5"/><circle cx="16" cy="7" r="2"/><path d="M5 13l5-4 3 3"/>'
+    : /Walk|Hike/i.test(t) ? '<circle cx="13" cy="4.5" r="2"/><path d="M11 21l2-6-2.5-3 1-4.5L15 10l3 1.5M10.5 7.5 7 10v3.5M13 15l3 6"/>'
+    : /Yoga|Pilates|Stretch|Mobility/i.test(t) ? '<circle cx="12" cy="5" r="2"/><path d="M4 20c3-1 5-3 8-3s5 2 8 3M12 7v6M6 11l6 2 6-2"/>'
+    : /Ski|Snow/i.test(t) ? '<path d="M3 19l18-6M8 4l3 3-2 4 4 3"/><circle cx="14" cy="4.5" r="2"/>'
+    : /Run/i.test(t) ? '<circle cx="14" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v4M7 12l3-4h4l2 3 3 1M11 15l-1-4"/>'
+    : '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/>';
+  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P}</svg>`;
+}
+const SPORT_DE = { Ride:'Rad', VirtualRide:'Rad (indoor)', GravelRide:'Gravel', MountainBikeRide:'MTB', EBikeRide:'E-Bike', WeightTraining:'Kraft', Workout:'Workout', Swim:'Schwimmen', Walk:'Gehen', Hike:'Wandern', Yoga:'Yoga', Run:'Laufen', TrailRun:'Trail', VirtualRun:'Laufband', Rowing:'Rudern', NordicSki:'Langlauf' };
 function weekBlock(mon){
   const wi = weekInfo(mon);
+  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
   const pct = wi.planned ? Math.min(100, Math.round(wi.done/wi.planned*100)) : 0;
   const thisMon = monday(TODAY);
   const title = mon === thisMon ? 'Diese Woche' : mon === addDays(thisMon,7) ? 'Nächste Woche' : mon === addDays(thisMon,-7) ? 'Letzte Woche' : `${shortD(mon)} – ${shortD(addDays(mon,6))}`;
   let h = `<div class="weeksep"><div class="row"><h2>${title}</h2><span class="small muted">${mon<=TODAY?`Belastung ${wi.done} von ${wi.planned}`:`geplant ${wi.planned}`}</span></div>${mon<=TODAY?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}</div>`;
   for (const d of wi.days){
-    const evs = wi.evs.filter(e=>e.date===d);
+    const evs = wi.evs.filter(e=>e.date===d), xs = extras.filter(a => dateOf(a.start_date_local) === d);
     h += `<div class="wday" data-day="${d}"><p class="lbl${d===TODAY?' today':''}">${nice(d)}${d===TODAY?' · heute':''}</p>`;
-    if (!evs.length) h += `<p class="empty">Ruhetag</p>`;
+    if (!evs.length && !xs.length) h += `<p class="empty">Ruhetag</p>`;
     for (const ev of evs){
       const st = statusOf(ev);
       const right = st.s==='done' ? '<span class="st" style="color:var(--lime)">✓ erledigt</span>' : st.s==='missed' ? '<span class="st" style="color:#FF6B6B">verpasst</span>' : `<span class="st muted">${ev.load}</span>`;
@@ -873,12 +888,10 @@ function weekBlock(mon){
       const srcTag = `<span style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:${isOwn(ev.raw)?'var(--lime)':'var(--lilac)'};opacity:.85">${sourceOf(ev.raw)}</span>`;
       h += `<button class="ev ${st.s}" data-act="menu" data-id="${ev.id}"${movable?' data-drag="1"':''}><span class="stripe" style="background:${ev.cat.col}"></span><span class="t">${srcTag}<span class="n">${esc(ev.name)}</span><span class="m">${esc(meta)}</span></span>${right}</button>`;
     }
-    h += `</div>`;
-  }
-  const extras = SNAP.activities.filter(a=>{const d=dateOf(a.start_date_local);return d>=mon&&d<=wi.days[6] && !wi.evs.some(e=>statusOf(e).act===a);});
-  if (extras.length){
-    h += `<div class="wday"><p class="lbl">Zusätzlich trainiert</p>`;
-    for (const a of extras) h += `<div class="ev done"><span class="stripe" style="background:var(--line)"></span><span class="t"><span class="n">${esc(a.name)}</span><span class="m">${nice(dateOf(a.start_date_local))} · ${esc(a.type)} · ${mins(a.moving_time)} min</span></span><span class="st muted">${a.icu_training_load??''}</span></div>`;
+    for (const a of xs){
+      const km = a.distance ? ` · ${(a.distance/1000).toFixed(1).replace('.',',')} km` : '';
+      h += `<div class="ev done" style="cursor:default"><span class="stripe" style="background:var(--line)"></span><span style="color:var(--lilac);display:flex;align-items:center;flex:none">${sportIcon(a.type)}</span><span class="t"><span style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--lilac);opacity:.85">Zusätzlich · ${esc(SPORT_DE[a.type] || a.type)}</span><span class="n">${esc(a.name)}</span><span class="m">${mins(a.moving_time)} min${km}${a.average_heartrate ? ` · Ø ${Math.round(a.average_heartrate)} bpm` : ''}</span></span><span class="st muted">${a.icu_training_load ?? ''}</span></div>`;
+    }
     h += `</div>`;
   }
   return h;
