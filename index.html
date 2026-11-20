@@ -2415,11 +2415,15 @@ function wxOutfit(D, H, ev){
   else if (tb >= 9.5) it.push('Dünne Tights');
   else if (tb > 2) it.push('Mittlere Tights');
   else it.push('Thermo-Tights');
+  // Regen braucht Ärmel: Jacke. Wind: Weste, bei Kälte Jacke, dazwischen entscheidest du
   let jacket = '';
-  if (!winterJacket && R.wet >= 10) jacket = 'rain';
-  else if (!winterJacket && R.wind >= 20 && tb < 16) jacket = 'wind';
-  if (jacket) it.push('Windjacke');
-  else if (!winterJacket && R.wind >= 12 && tb < 10) it.push('Windweste');
+  if (!winterJacket && R.wet >= 10){ jacket = 'rain'; it.push('Windjacke'); }
+  else if (!winterJacket && R.wind >= 12 && tb < 14){
+    const eff = tb - (R.wind >= 20 ? 3 : 0);
+    if (eff >= 5){ jacket = 'vest'; it.push('Windweste'); }
+    else if (eff <= 0){ jacket = 'wind'; it.push('Windjacke'); }
+    else { jacket = 'pick'; it.push('Windweste oder Windjacke'); }
+  }
   if (tb < 2) it.push('Mittlere Handschuhe'); else if (tb < 7) it.push('Dünne Handschuhe');
   if (tb < 4) it.push('Mütze'); else if (tb < 7) it.push('Buff');
   if (tb <= 0) it.push('Dicke Socken');
@@ -2441,8 +2445,12 @@ function wxOutfit(D, H, ev){
   if (R.darkStart) ex.push(`Die Sonne geht erst um ${wxHM(D.rise)} auf, die Stirnlampe muss mit.`);
   else if (R.darkEnd) ex.push(`Sonnenuntergang ist um ${wxHM(D.set)}, die Stirnlampe muss mit.`);
   if (R.t1 - R.t0 >= 3 && it.some(x => /Mütze|Handschuhe|Buff/.test(x))) ex.push(`Bis zum Ende steigt es auf ${T(R.t1)}, Mütze und Handschuhe kannst du dann ausziehen.`);
-  if (jacket === 'wind') ex.push(`Der Wind kommt mit ${Math.round(R.wind)} km/h aus ${wxDir(R.dirDeg)}, die Windjacke hält ihn ab.`);
-  return { items:it, why: [why, ...ex.slice(0, 2)].join(' '), R };
+  const wtxt = `${Math.round(R.wind)} km/h aus ${wxDir(R.dirDeg)}`;
+  if (jacket === 'vest') ex.push(`Gegen den Wind mit ${wtxt} reicht die Weste.`);
+  if (jacket === 'wind') ex.push(`Bei ${wtxt} und der Kälte hält die Windjacke dich warm.`);
+  if (jacket === 'pick') ex.push(`Wind mit ${wtxt}: Weste oder Jacke, schau kurz raus und entscheide selbst.`);
+  const pickFirst = ex.filter(x => /entscheide selbst/.test(x)).concat(ex.filter(x => !/entscheide selbst/.test(x)));
+  return { items:it, why: [why, ...pickFirst.slice(0, 2)].join(' '), R };
 }
 const WX_SLOT_ICON = {
   8:'<path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 7v3M5.5 11.5l1.8 1.3M18.5 11.5l-1.8 1.3"/>',
@@ -2483,7 +2491,7 @@ function weatherHTML(ev, st){
   const O = wxOutfit(D, H, ev);
   h += `<section style="${card};gap:10px">${lab('KLEIDUNG')}`;
   h += `<div role="radiogroup" aria-label="Laufzeit" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:var(--bg);border-radius:14px;padding:4px">${WX_SLOTS.map(s => { const on = s === H; return `<button role="radio" aria-checked="${on}" data-act="wxslot" data-id="${ev.id}" data-v="${s}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0;border:none;border-radius:10px;font:inherit;cursor:pointer;background:${on ? 'var(--lime)' : 'transparent'};color:${on ? 'var(--bg)' : 'var(--lilac)'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${WX_SLOT_ICON[s]}</svg><span style="font-size:11px;font-weight:${on ? 700 : 400}">${s} Uhr</span></button>`; }).join('')}</div>`;
-  h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${O.items.map(x => `<span style="background:var(--bg);border-radius:99px;padding:6px 11px;font-size:13px">${esc(x)}</span>`).join('')}</div>`;
+  h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${O.items.map(x => / oder /.test(x) ? `<span style="border:1.5px dashed var(--lilac);border-radius:99px;padding:5px 10px;font-size:13px">${esc(x)}</span>` : `<span style="background:var(--bg);border-radius:99px;padding:6px 11px;font-size:13px">${esc(x)}</span>`).join('')}</div>`;
   h += `<p class="small muted" style="line-height:1.5">${esc(O.why)}</p></section>`;
   return h;
 }
