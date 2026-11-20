@@ -1669,6 +1669,41 @@ const WX_SLOTS = [8, 12, 15, 18];
 const WX_MON = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 const WX = { data:null, key:'', at:0, loading:false, err:false };
 ST.wxt = ST.wxt || {};
+ST.wxfb = ST.wxfb || {};
+function wxOffsets(before){
+  const fb = Object.values(ST.wxfb).filter(f => f && f.date < before).sort((x, y) => x.date < y.date ? -1 : 1).slice(-10);
+  const sum = k => Math.max(-4, Math.min(4, fb.reduce((a, f) => a + (f[k] || 0), 0)));
+  return { top:sum('top'), bottom:sum('bottom') };
+}
+let WXFB_OPEN = null;
+function wxFeedbackHTML(ev, D, H){
+  const O = wxOutfit(D, H, ev);
+  const f = ST.wxfb[ev.id] || {};
+  const open = WXFB_OPEN === String(ev.id) || f.top || f.bottom;
+  const lab = t => `<span class="small" style="letter-spacing:.06em;color:var(--lilac);font-weight:700;font-size:11px">${t}</span>`;
+  let h = `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px">${lab('KLEIDUNG-TIPP')}`;
+  h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${O.items.map(x => `<span style="background:var(--bg);border-radius:99px;padding:6px 11px;font-size:13px;color:var(--soft)">${esc(x)}</span>`).join('')}</div>`;
+  if (!open){
+    h += `<div class="row"><span class="small muted">Nichts gesagt heißt: passte.</span><button class="chip" data-act="wxfbopen" data-id="${ev.id}" style="color:var(--lime)">Passte nicht?</button></div>`;
+  } else {
+    const row = (k, name) => `<div style="display:flex;align-items:center;gap:8px"><span class="small" style="width:44px">${name}</span><div style="flex:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;background:var(--bg);border-radius:12px;padding:3px">${[[-1,'Zu kalt'],[0,'Passte'],[1,'Zu warm']].map(([v, t]) => { const on = (f[k] || 0) === v; return `<button data-act="wxfb" data-id="${ev.id}" data-k="${k}" data-v="${v}" aria-pressed="${on}" style="border:none;border-radius:9px;padding:8px 0;font:inherit;font-size:13px;cursor:pointer;background:${on ? (v ? 'var(--lime)' : 'var(--line)') : 'transparent'};color:${on && v ? 'var(--bg)' : 'var(--text)'};font-weight:${on ? 700 : 400}">${t}</button>`; }).join('')}</div></div>`;
+    h += row('top', 'Oben') + row('bottom', 'Unten');
+    h += `<p class="small muted" style="line-height:1.5">${f.top || f.bottom ? 'Gemerkt. Ab der zweiten gleichen Rückmeldung ändern sich die Tipps spürbar.' : 'Oben zählen auch Handschuhe, Mütze und Jacke.'}</p>`;
+  }
+  return h + `</section>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act, y = scrollY;
+  if (a === 'wxfbopen'){ WXFB_OPEN = String(b.dataset.id); render(); scrollTo(0, y); }
+  if (a === 'wxfb'){
+    const ev = plan().find(x => String(x.id) === String(b.dataset.id)); if (!ev) return;
+    const f = ST.wxfb[ev.id] || { date:ev.date };
+    f[b.dataset.k] = +b.dataset.v; f.date = ev.date;
+    if (!f.top && !f.bottom) delete ST.wxfb[ev.id]; else ST.wxfb[ev.id] = f;
+    WXFB_OPEN = String(ev.id); save(); render(); scrollTo(0, y);
+  }
+});
 function wxLoc(){ return ST.wxloc || WX_HOME; }
 function wxKey(){ const l = wxLoc(); return `${l.lat.toFixed(2)},${l.lon.toFixed(2)}`; }
 (function(){ try { const c = JSON.parse(localStorage.getItem('ontrack.wx') || 'null'); if (c && c.data){ WX.data = c.data; WX.key = c.key; WX.at = c.at; } } catch(e){} })();
@@ -1778,33 +1813,34 @@ function wxRun(D, H, durMin){
     darkStart: D.rise != null && H < D.rise, darkEnd: D.set != null && E > D.set, sunny: (D.code[Math.round(Math.min(23, (H + E) / 2))] || 9) <= 1 };
 }
 // Kleiderregeln nach Alex' Schrank und Schwellen
-function wxOutfit(D, H, ev){
+function wxOutfit(D, H, ev, offs, plain){
+  offs = offs || wxOffsets(ev.date);
   const R = wxRun(D, H, ev.dur / 60);
   const hard = ev.cat && ev.cat.hard, long = ev.dur >= 4500;
-  const tb = R.t0 + (hard ? 2 : 0);
+  const tb = R.t0 + (hard ? 2 : 0), tt = tb + offs.top, tl = tb + offs.bottom;
   const it = [];
   let winterJacket = false;
-  if (tb >= 17) it.push('Kurzarm-Shirt');
-  else if (tb >= 11) it.push('Dünner Longsleeve');
-  else if (tb > -3) it.push('Dicker Longsleeve');
+  if (tt >= 17) it.push('Kurzarm-Shirt');
+  else if (tt >= 11) it.push('Dünner Longsleeve');
+  else if (tt > -3) it.push('Dicker Longsleeve');
   else { it.push('Dicker Longsleeve', 'Winter-Laufjacke'); winterJacket = true; }
-  if (tb < 3 && !winterJacket) it.unshift('Base Layer');
-  if (tb >= 15) it.push('Kurze Hose');
-  else if (tb >= 9.5) it.push('Dünne Tights');
-  else if (tb > 2) it.push('Mittlere Tights');
+  if (tt < 3 && !winterJacket) it.unshift('Base Layer');
+  if (tl >= 15) it.push('Kurze Hose');
+  else if (tl >= 9.5) it.push('Dünne Tights');
+  else if (tl > 2) it.push('Mittlere Tights');
   else it.push('Thermo-Tights');
   // Regen braucht Ärmel: Jacke. Wind: Weste, bei Kälte Jacke, dazwischen entscheidest du
   let jacket = '';
   if (!winterJacket && R.wet >= 10){ jacket = 'rain'; it.push('Windjacke'); }
-  else if (!winterJacket && R.wind >= 12 && tb < 14){
-    const eff = tb - (R.wind >= 20 ? 3 : 0);
+  else if (!winterJacket && R.wind >= 12 && tt < 14){
+    const eff = tt - (R.wind >= 20 ? 3 : 0);
     if (eff >= 5){ jacket = 'vest'; it.push('Windweste'); }
     else if (eff <= 0){ jacket = 'wind'; it.push('Windjacke'); }
     else { jacket = 'pick'; it.push('Windweste oder Windjacke'); }
   }
-  if (tb < 2) it.push('Mittlere Handschuhe'); else if (tb < 7) it.push('Dünne Handschuhe');
-  if (tb < 4) it.push('Mütze'); else if (tb < 7) it.push('Buff');
-  if (tb <= 0) it.push('Dicke Socken');
+  if (tt < 2) it.push('Mittlere Handschuhe'); else if (tt < 7) it.push('Dünne Handschuhe');
+  if (tt < 4) it.push('Mütze'); else if (tt < 7) it.push('Buff');
+  if (tl <= 0) it.push('Dicke Socken');
   if (R.t0 >= 22 && R.sunny) it.push('Sonnencap');
   if (R.darkStart || R.darkEnd) it.push('Stirnlampe');
   // Begründung: Startwert, dann die zwei wichtigsten Änderungen unterwegs
@@ -1828,6 +1864,13 @@ function wxOutfit(D, H, ev){
   if (jacket === 'vest') ex.push(`Gegen den Wind mit ${wtxt} reicht die Weste.`);
   if (jacket === 'wind') ex.push(`Bei ${wtxt} und der Kälte hält die Windjacke dich warm.`);
   if (jacket === 'pick') ex.push(`Wind mit ${wtxt}: Weste oder Jacke, schau kurz raus und entscheide selbst.`);
+  if (!plain && (offs.top || offs.bottom)){
+    const base = wxOutfit(D, H, ev, { top:0, bottom:0 }, true).items.join('|');
+    const chg = k => offs[k] && wxOutfit(D, H, ev, k === 'top' ? { top:offs.top, bottom:0 } : { top:0, bottom:offs.bottom }, true).items.join('|') !== base;
+    const part = (k, w) => chg(k) ? `${w} ${offs[k] < 0 ? 'wärmer' : 'leichter'}` : '';
+    const tx = [part('top', 'oben'), part('bottom', 'unten')].filter(Boolean).join(', ');
+    if (tx) ex.unshift(`Nach deinen Rückmeldungen ${tx} als sonst.`);
+  }
   const pickFirst = ex.filter(x => /entscheide selbst/.test(x)).concat(ex.filter(x => !/entscheide selbst/.test(x)));
   return { items:it, why: [why, ...pickFirst.slice(0, 2)].join(' '), R };
 }
@@ -1866,7 +1909,7 @@ function weatherHTML(ev, st){
   const tile = (t, hl) => `<span style="background:var(--bg);border-radius:10px;padding:7px 4px;${hl ? `outline:1.5px solid ${hl === true ? '#7FB8FF' : hl};` : ''}">${t}</span>`;
   h += `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:10px;font-size:12px;text-align:center">${tile(`💨 ${Math.round(D.ws[hi])} km/h ${wxDir(D.wd[hi])}`)}${tile(`💧 ${rainTxt}`, R.wet >= 10)}${tile(`🌅 ${D.rise != null ? wxHM(D.rise) : '–'} · ${D.set != null ? wxHM(D.set) : '–'}`, (R.darkStart || R.darkEnd) && '#FFD84D')}</div>`;
   h += `</section>`;
-  if (done) return h;
+  if (done) return h + wxFeedbackHTML(ev, D, H);
   const O = wxOutfit(D, H, ev);
   h += `<section style="${card};gap:10px">${lab('KLEIDUNG')}`;
   h += `<div role="radiogroup" aria-label="Laufzeit" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:var(--bg);border-radius:14px;padding:4px">${WX_SLOTS.map(s => { const on = s === H; return `<button role="radio" aria-checked="${on}" data-act="wxslot" data-id="${ev.id}" data-v="${s}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0;border:none;border-radius:10px;font:inherit;cursor:pointer;background:${on ? 'var(--lime)' : 'transparent'};color:${on ? 'var(--bg)' : 'var(--lilac)'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${WX_SLOT_ICON[s]}</svg><span style="font-size:11px;font-weight:${on ? 700 : 400}">${s} Uhr</span></button>`; }).join('')}</div>`;
