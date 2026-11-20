@@ -1764,15 +1764,17 @@ function wxChart(D, H, durMin){
 }
 function wxRun(D, H, durMin){
   const E = H + durMin / 60;
-  let wet = 0, firstWet = null, lastWet = null, mmMax = 0;
+  let wet = 0, firstWet = null, lastWet = null, mmMax = 0, onlyDrizzle = true;
   for (let h = Math.floor(H); h < Math.ceil(E); h++){
-    const r = wxRain(D, h); if (!wxWet(r)) continue;
+    const r = wxRain(D, h), cd = [D.code[h], D.code[h + 1]], niesel = cd.some(c => c >= 51 && c <= 57) && r.pp >= 30;
+    if (!wxWet(r) && !niesel) continue;
+    if (!cd.some(c => (c >= 51 && c <= 57))) onlyDrizzle = false;
     const ov = Math.max(0, Math.min(h + 1, E) - Math.max(h, H)); if (!ov) continue;
     wet += ov * 60; mmMax = Math.max(mmMax, r.mm);
     if (firstWet == null) firstWet = Math.max(h, H); lastWet = Math.min(h + 1, E);
   }
   let wind = 0; for (let h = Math.floor(H); h <= Math.min(23, Math.floor(E)); h++) wind = Math.max(wind, D.ws[h] || 0);
-  return { E, t0:wxAt(D.t, H), t1:wxAt(D.t, Math.min(23, E)), a0:wxAt(D.a, H), wet:Math.round(wet), firstWet, lastWet, mmMax, wind, dirDeg:D.wd[Math.min(23, Math.round(H))],
+  return { E, drizzle: onlyDrizzle, t0:wxAt(D.t, H), t1:wxAt(D.t, Math.min(23, E)), a0:wxAt(D.a, H), wet:Math.round(wet), firstWet, lastWet, mmMax, wind, dirDeg:D.wd[Math.min(23, Math.round(H))],
     darkStart: D.rise != null && H < D.rise, darkEnd: D.set != null && E > D.set, sunny: (D.code[Math.round(Math.min(23, (H + E) / 2))] || 9) <= 1 };
 }
 // Kleiderregeln nach Alex' Schrank und Schwellen
@@ -1813,10 +1815,11 @@ function wxOutfit(D, H, ev){
   const ex = [];
   if (R.wet >= 10){
     const fromStart = R.firstWet <= H + 0.05, toEnd = R.lastWet >= R.E - 0.05;
-    if (fromStart && toEnd) ex.push('Es regnet fast den ganzen Lauf über, die Windjacke hält nur leichten Regen ab.');
-    else if (toEnd) ex.push(`Ab ${wxH(R.firstWet)} regnet es, die letzten ${R.wet} Minuten werden nass.`);
-    else if (fromStart) ex.push(`Zu Beginn regnet es noch, bis etwa ${wxH(R.lastWet)}.`);
-    else ex.push(`Zwischen ${wxHM(R.firstWet)} und ${wxHM(R.lastWet)} Uhr zieht ein Schauer durch.`);
+    const vb = R.drizzle ? 'nieselt' : 'regnet';
+    if (fromStart && toEnd) ex.push(R.drizzle ? 'Es nieselt fast den ganzen Lauf über, dafür ist die Windjacke genau richtig.' : 'Es regnet fast den ganzen Lauf über, die Windjacke hält nur leichten Regen ab.');
+    else if (toEnd) ex.push(`Ab ${wxH(R.firstWet)} ${vb} es, die letzten ${R.wet} Minuten werden nass.`);
+    else if (fromStart) ex.push(`Zu Beginn ${vb} es noch, bis etwa ${wxH(R.lastWet)}.`);
+    else ex.push(`Zwischen ${wxHM(R.firstWet)} und ${wxHM(R.lastWet)} Uhr ${R.drizzle ? 'nieselt es' : 'zieht ein Schauer durch'}.`);
   }
   if (R.darkStart) ex.push(`Die Sonne geht erst um ${wxHM(D.rise)} auf, die Stirnlampe muss mit.`);
   else if (R.darkEnd) ex.push(`Sonnenuntergang ist um ${wxHM(D.set)}, die Stirnlampe muss mit.`);
