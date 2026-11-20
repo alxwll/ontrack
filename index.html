@@ -151,6 +151,29 @@ const nice = s => `${WD[wd(s)]}, ${parseD(s).getUTCDate()}. ${MON[parseD(s).getU
 const mins = sec => Math.round(sec/60);
 const paceStr = ms => { if(!ms) return '–'; const s=Math.round(1000/ms); return `${Math.floor(s/60)}:${d2(s%60)}`; };
 const pctToPace = p => paceStr(THR*p/100);
+/* ---------- Puls-Ziele: %LTHR <-> Intensität (Pace-%) für Farbe, Höhe und Belastung ---------- */
+function lerpMap(x, M, i, j){ for (let k = 1; k < M.length; k++){ const a = M[k-1], b = M[k]; if (x <= b[i] || k === M.length-1){ const t = (x - a[i]) / (b[i] - a[i]); return a[j] + t * (b[j] - a[j]); } } return x; }
+const LTHR = () => SNAP.settings.lthr || 165, HRMAX = () => SNAP.settings.max_hr || 190;
+// Deine Pulszonen (Obergrenzen in bpm) auf die fünf Intensitätszonen legen: Puls-Z2 = Locker usw.
+function hrMap(){
+  let z = (SNAP.settings.hr_zones || []).filter(Boolean);
+  if (z.length < 5){ const L = LTHR(); z = [L*.81, L*.89, L*.93, L*.99, HRMAX()]; }
+  if (z.length > 5) z = [z[0], z[1], z[2], z[3], z[z.length-1]];
+  return [[z[0]*.7, 55], [z[0], 80], [z[1], 90], [z[2], 96], [z[3], 102], [Math.max(z[4], z[3]+5), 112]];
+}
+const bpmToPct = b => lerpMap(b, hrMap(), 0, 1), pctToBpmRaw = p => lerpMap(p, hrMap(), 1, 0);
+const lthrToPct = l => bpmToPct(l / 100 * LTHR()), pctToLthr = p => pctToBpmRaw(p) / LTHR() * 100;
+const pctToBpm = p => Math.round(pctToBpmRaw(p));
+function hrZoneOf(bpm){ const z = SNAP.settings.hr_zones || []; const i = z.findIndex(u => bpm <= u); return 'Z' + (i < 0 ? Math.max(1, z.length) : i + 1); }
+function bpmRange(s){ const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end); return [pctToBpm(lo), pctToBpm(hi)]; }
+// Zieltext für Anzeigen: Pace oder Puls, je nach Schritt
+function targetTxt(s){
+  if (!s.pace) return '';
+  if (s.hrMode){ const [a, b] = bpmRange(s); return `${hrZoneOf(Math.round((a+b)/2))} · ${a}–${b} bpm`; }
+  const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end);
+  return `${pctToPace(hi)}–${pctToPace(lo)} /km`;
+}
+const withHr = (steps, on) => steps.map(s => s.steps ? Object.assign({}, s, { steps: withHr(s.steps, on) }) : s.pace ? Object.assign({}, s, { hrMode: !!on }) : s);
 const cleanName = n => (n||'').replace(/^IntervalCoach\s*-\s*/,'');
 // Eigene Trainings: von On. Track angelegt oder verändert. Nur die fasst die Automatik an.
 const OWN_MARK = '[on.track]';
@@ -174,6 +197,16 @@ const zoneOf = p => ZONES.find(z => p < z.max) || ZONES[4];
 function normStep(s){
   const t = Object.assign({}, s);
   const p = s.pace;
+  // Puls-Ziel (Zone, %LTHR, %HFmax oder bpm) in Intensität umrechnen, Schritt als Puls-Schritt markieren
+  if (s.hr && (!p || (p.start == null && p.value == null))){
+    const h = s.hr, z = SNAP.settings.hr_zones || [], L = LTHR();
+    const toL = v => h.units === '%hr' ? v * HRMAX() / L : h.units === '%lthr' ? v : v / L * 100;
+    let lo, hi;
+    if (h.units === 'hr_zone'){ const v = Math.max(1, Math.min(z.length || 5, Math.round(h.value ?? h.start ?? 2))); lo = (v === 1 ? (z[0] || 130) * 0.85 : z[v-2]) / L * 100; hi = Math.min(z[v-1] || L, HRMAX()) / L * 100; }
+    else if (h.start != null){ lo = toL(h.start); hi = toL(h.end ?? h.start); }
+    else if (h.value != null){ lo = toL(h.value) - 2; hi = toL(h.value) + 2; }
+    if (lo != null){ t.pace = { start: lthrToPct(lo), end: lthrToPct(hi), units:'%pace' }; t.hrMode = true; return t; }
+  }
   if (p){
     if (p.units === 'pace_zone' && p.value != null){
       const z = SNAP.settings.pace_zones || [80,90,96,102,999];
@@ -287,6 +320,8 @@ function buildEvent(e0){
   } else if (v) steps = applyVariant(base, v);
   const tm = ST.time && ST.time[e0.id];
   if (tm) steps = trimSteps(steps, tm);
+  const hm = ST.hrm && ST.hrm[e0.id];
+  if (hm != null) steps = withHr(steps, hm);
   const extra = ST.comp[e.id] || 0; // Ausgleich in Sekunden, wird auf den längsten lockeren Abschnitt gelegt
   if (extra && steps.length){
     steps = steps.map(s=>Object.assign({},s));
@@ -299,7 +334,7 @@ function buildEvent(e0){
   const ratio = origBase.length ? estLoad(steps)/Math.max(estLoad(origBase),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
   const cat = eased ? category(Object.assign({}, e, { name: eased }), steps) : category(swT ? Object.assign({}, e, { name: swT.name, moving_time: base.reduce((a,x)=>a+x.duration,0) }) : e, base);
-  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, timed: tm || null, modified: !!(v || swT || tm) };
+  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, timed: tm || null, hrSet: hm ?? null, modified: !!(v || swT || tm || hm != null) };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
@@ -385,12 +420,16 @@ function profileSVG(steps, h, opts={}){
       if (b.s.duration < 150 || !b.s.pace) return;
       const inB = sm.filter(r => { const px = r[0]/tEnd*W; return px >= b.x0 && px <= b.x1; });
       if (inB.length < 2) return;
-      const v = inB.reduce((a,r)=>a+r[1],0)/inB.length, pct = v/THR*100;
+      let v = inB.reduce((a,r)=>a+r[1],0)/inB.length, pct = v/THR*100;
       const lo = Math.min(b.s.pace.start, b.s.pace.end), hi = Math.max(b.s.pace.start, b.s.pace.end);
-      const ok = pct >= lo - 2 && pct <= hi + 2;
+      let ok = pct >= lo - 2 && pct <= hi + 2, hrAvg = null, bLo, bHi;
+      if (b.s.hrMode){
+        const hs = pts.filter(r => { const px = r[0]/tEnd*W; return px >= b.x0 && px <= b.x1 && r[2] > 0; });
+        if (hs.length){ hrAvg = Math.round(hs.reduce((a,r)=>a+r[2],0)/hs.length); [bLo, bHi] = bpmRange(b.s); ok = hrAvg >= bLo - 3 && hrAvg <= bHi + 3; pct = lthrToPct(hrAvg / LTHR() * 100); }
+      }
       const y = (H - hOf(pct)).toFixed(1);
       line += `<line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#2A0F5C" stroke-width="5" vector-effect="non-scaling-stroke"></line><line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#D7FF3D" stroke-width="2.5" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"></line>`;
-      avgIn[i] = { v, ok, pct, hi };
+      avgIn[i] = { v, ok, pct, hi, hr: hrAvg, bHi };
     });
   }
   // Antippbare Blöcke: Dauer und Pace-Spanne, bei gelaufenen Einheiten plus Schnitt
@@ -398,8 +437,9 @@ function profileSVG(steps, h, opts={}){
     blocks.forEach((b, i) => {
       const s = b.s; if (!s.pace) return;
       const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end), a = avgIn[i];
-      let txt = `${durTxt(s.duration)} · ${pctToPace(hi)}–${pctToPace(lo)} /km`;
-      if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
+      let txt = `${durTxt(s.duration)} · ${targetTxt(s)}`;
+      if (a && a.hr) txt += ` · Ø ${a.hr} bpm ${a.ok ? '✓' : a.hr > a.bHi ? 'zu hoch' : 'zu niedrig'}`;
+      else if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
       PFB.push({ si: i, x0: b.x0/W*100, x1: (b.x1+gap)/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
     });
   }
@@ -538,7 +578,7 @@ function viewDetail(id){
   if (ev.modified && st.s!=='done') h += modBanner(ev);
   if (ev.steps.length && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (ev.steps.length){
-    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Antippen oder mit dem Finger ziehen für Dauer und Pace.</p></section>`;
+    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Antippen oder mit dem Finger ziehen für Dauer und Ziel.</p></section>`;
   }
   if (st.s==='done' && st.act){
     const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
@@ -557,7 +597,7 @@ function fmtDur(sec){ return sec>=60 ? `${Math.round(sec/60*2)/2} min`.replace('
 function stepRow(s){
   const z = zoneOf(stepPct(s));
   const sw = zz => zz===ZONES[0] ? `border:2px solid ${zz.hex}` : `background:${zz.hex}`;
-  const pace = x => x.pace ? `${pctToPace(x.pace.end)}–${pctToPace(x.pace.start)} /km` : '';
+  const pace = x => targetTxt(x);
   if (s.pair){
     const z2 = zoneOf(stepPct(s.pair));
     return `<div class="s"><span class="c" style="${sw(z)}"></span><span class="x"><b>${s.n} × ${esc(stepLabel(s))} ${fmtDur(s.duration)}</b><span>${z.name} · ${pace(s)}</span><span style="display:block">+ ${esc(stepLabel(s.pair))} ${fmtDur(s.pair.duration)} · ${pace(s.pair)}</span></span><span class="dur">${fmtDur(s.n*(s.duration+s.pair.duration))}</span></div>`;
@@ -977,7 +1017,7 @@ function fitWorkout(t, minutes, maxLvl = 2){
 }
 // Für später: Schritte als Intervals-Text (so landen sie auf der Uhr)
 function toIntervalsText(steps){
-  const one = s => `- ${s.duration%60 ? s.duration+'s' : (s.duration/60)+'m'} ${s.ramp ? 'ramp ' : ''}${Math.round(s.pace.start)}-${Math.round(s.pace.end)}% Pace${s.text?` ${s.text.replace(/-/g,' ')}`:''}`;
+  const one = s => { const f = s.hrMode ? pctToLthr : (x => x); return `- ${s.duration%60 ? s.duration+'s' : (s.duration/60)+'m'} ${s.ramp ? 'ramp ' : ''}${Math.round(f(s.pace.start))}-${Math.round(f(s.pace.end))}% ${s.hrMode ? 'LTHR' : 'Pace'}${s.text?` ${s.text.replace(/-/g,' ')}`:''}`; };
   return steps.map(s => s.reps ? `\n${s.reps}x\n${s.steps.map(x=>x.reps?toIntervalsText([x]):one(x)).join('\n')}\n` : one(s)).join('\n');
 }
 function dotsHTML(n, col){ return `<span aria-label="Intensität ${n} von 5" style="display:inline-flex;gap:3px">${[1,2,3,4,5].map(i=>`<i style="width:7px;height:7px;border-radius:99px;background:${i<=n?col:'var(--line)'};display:inline-block"></i>`).join('')}</span>`; }
@@ -1024,13 +1064,14 @@ function viewWorkouts(){
 let GEN = null; // aktuell erzeugtes Workout
 function viewGenerated(){
   if (!GEN) return viewWorkouts();
-  const t = GEN.t, steps = flatSteps(GEN.steps);
+  const t = GEN.t, steps = withHr(flatSteps(GEN.steps), !!GEN.hr);
   const c = CATS.find(x => x.key === t.cat);
   let h = `<a class="back" href="${GEN.from || '#workouts'}">‹ Zurück</a>`;
   h += `<div style="display:flex;flex-direction:column;gap:8px"><div class="row" style="justify-content:flex-start;gap:8px"><span class="tag" style="background:var(--card)">${c.name} · ${mins(durOf(steps))} min · Belastung ${loadOf(steps)}</span></div>
     <h1>${esc(t.name)}</h1></div>`;
   h += `<div class="row" style="margin-bottom:-8px"><p class="small muted">${LEVELS[['intro','standard','pro'][GEN.level]]}</p><button class="chip" data-act="swap" aria-label="Anderes Training wählen"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4L3 8l4 4"></path><path d="M3 8h14"></path><path d="M17 20l4-4-4-4"></path><path d="M21 16H7"></path></svg>Tauschen</button></div>`;
-  h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(steps,140)}${legendHTML()}</section>`;
+  h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(steps,140,{tap:true})}${legendHTML()}</section>`;
+  h += hrToggle(!!GEN.hr, 'genhr');
   if (GEN.mode === 'lib'){
     h += `<div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr))">${[0,1,2].map(l=>`<button class="btn${GEN.level===l?' sel':''}" data-act="lvl" data-v="${l}">${LEVELS[['intro','standard','pro'][l]]}</button>`).join('')}</div>`;
   }
@@ -1629,15 +1670,15 @@ async function refreshLive(){
 }
 const fmtSec = s => s % 60 ? `${Math.round(s)}s` : `${s/60}m`;
 function stepsToText(steps){
-  const rng = s => { const a = Math.round(s.pace.start), b = Math.round(s.pace.end); return s.ramp ? `ramp ${a}-${b}%` : `${Math.min(a,b)}-${Math.max(a,b)}%`; };
-  const line = s => `- ${(s.text || stepLabel(s)).replace(/[\n-]/g,' ').trim()} ${fmtSec(s.duration)}${s.pace ? ` ${rng(s)} Pace` : ''}`;
+  const rng = s => { const f = s.hrMode ? pctToLthr : (x => x); const a = Math.round(f(s.pace.start)), b = Math.round(f(s.pace.end)); return s.ramp ? `ramp ${a}-${b}%` : `${Math.min(a,b)}-${Math.max(a,b)}%`; };
+  const line = s => `- ${(s.text || stepLabel(s)).replace(/[\n-]/g,' ').trim()} ${fmtSec(s.duration)}${s.pace ? ` ${rng(s)} ${s.hrMode ? 'LTHR' : 'Pace'}` : ''}`;
   return compress(steps).map(s => s.pair ? `\n${s.n}x\n${line(s)}\n${line(s.pair)}\n` : s.n > 1 ? `\n${s.n}x\n${line(s)}\n` : line(s)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 function pushMove(id, d){ sync('Das Verschieben', () => api('PUT', `/api/events/${id}`, { start_date_local: `${d}T00:00:00` })); }
 function pushDelete(id){ sync('Das Streichen', () => api('DELETE', `/api/events/${id}`)); }
 function pushShape(id){
   const raw = SNAP.events.find(e => String(e.id) === String(id)); if (!raw || isStrength(raw.type)) return;
-  const changed = ST.variants[id] || ST.comp[id] || (ST.swaps && ST.swaps[id]) || (ST.time && ST.time[id]);
+  const changed = ST.variants[id] || ST.comp[id] || (ST.swaps && ST.swaps[id]) || (ST.time && ST.time[id]) || (ST.hrm && ST.hrm[id] != null);
   if (!changed){
     const o = ST.orig[id]; if (!o) return;
     sync('Das Zurücksetzen', async () => { await api('PUT', `/api/events/${id}`, { name:o.name, description:o.description || stepsToText(flatten(o.workout_doc && o.workout_doc.steps)) }); delete ST.orig[id]; save(); });
@@ -1653,7 +1694,7 @@ function pushShape(id){
 function syncShapes(ids){ [...new Set(ids.map(String))].forEach(pushShape); }
 function pushCreate(gen, day){
   if (!gen) return;
-  const steps = flatSteps(gen.steps);
+  const steps = withHr(flatSteps(gen.steps), !!gen.hr);
   sync('Das Workout', () => api('POST', '/api/events', { type:'Run', start_date_local:`${day}T00:00:00`, name:`On.Track · ${gen.t.name}`, description: stepsToText(steps) + `\n\n${OWN_MARK}` }));
   toast(day === TODAY ? 'Wird an deine Uhr gesendet …' : `Wird für ${nice(day)} eingeplant …`);
 }
@@ -1811,10 +1852,13 @@ function adjustSheet(id){
       <div class="row small muted" style="margin-top:14px"><span>${lo}′</span><span>${hi}′</span></div>
       <p class="small muted">Kürzer: erst Ein- und Auslaufen, dann Wiederholungen. Länger: mehr lockerer Umfang, der Kern bleibt.</p>
     </div>`;
+  const evNow = plan().find(x => String(x.id) === String(id));
+  const hrOn = ADJ.hr != null ? ADJ.hr : (ST.hrm && ST.hrm[id] != null) ? ST.hrm[id] : !!(evNow && evNow.base.some(s => s.hrMode));
+  h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:8px">STEUERUNG</p>${hrToggle(hrOn, 'adjhr')}`;
   h += `<p class="small" style="font-weight:700;color:var(--lilac);letter-spacing:.04em;margin-top:8px">INTENSITÄT${ADJ.time ? ` · AUF ${ADJ.time} MIN` : ''}</p>`;
   for (const [k, label, x0] of A.opts){
     const sel = ADJ.pick === k;
-    const st = ADJ.time ? trimSteps(x0.steps, ADJ.time) : x0.steps, x = { t:x0.t, steps:st, load:loadOf(st), dur:durOf(st) };
+    const st = withHr(ADJ.time ? trimSteps(x0.steps, ADJ.time) : x0.steps, hrOn), x = { t:x0.t, steps:st, load:loadOf(st), dur:durOf(st) };
     h += `<button class="ev" data-act="adjpick" data-v="${k}" style="flex-direction:column;align-items:stretch;gap:8px;background:rgba(26,8,64,.45);${sel?'outline:2px solid var(--lime)':''}">
       <span class="row"><b>${label}</b>${A.rec === k ? '<span class="small" style="background:var(--lime);color:var(--bg);padding:2px 8px;border-radius:99px;font-weight:700">Empfohlen</span>' : sel ? '<span class="small" style="color:var(--lime)">✓ gewählt</span>' : ''}</span>
       <span class="row"><span>${esc(x.t.name)}</span><span class="small muted">${mins(x.dur)} min · ${x.load} · ${pct(x.load)}</span></span>
@@ -1838,23 +1882,28 @@ document.addEventListener('click', e => {
   if (act === 'adjorig' && ADJ){ ADJ.time = null; keepSheetScroll(() => adjustSheet(ADJ.id)); }
   if (act === 'adjprev' && ADJ){
     const x = ADJ.pick && ADJ.A.opts.find(o => o[0] === ADJ.pick);
-    previewSheet(ADJ.id, { variant:null, swap: x ? { tpl:x[2].t.id, lvl:x[2].lvl } : null, time: ADJ.time }, 'Heute anpassen');
+    const raw = SNAP.events.find(e => String(e.id) === String(ADJ.id));
+    const origHr = !!(raw && flatten(raw.workout_doc && raw.workout_doc.steps).some(s => s.hrMode));
+    const hr = ADJ.hr != null ? ADJ.hr : (ST.hrm && ST.hrm[ADJ.id] != null) ? ST.hrm[ADJ.id] : (x && origHr) ? true : null;
+    previewSheet(ADJ.id, { variant:null, swap: x ? { tpl:x[2].t.id, lvl:x[2].lvl } : null, time: ADJ.time, hr: hr === origHr && !x ? null : hr }, 'Heute anpassen');
   }
 });
 function modBanner(ev){
-  const what = (ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : ev.eased ? `leichter: lockerer Dauerlauf statt ${esc(ev.origName)}` : ev.variant ? `angepasst: ${VARIANTS[ev.variant]}` : 'angepasst') + (ev.timed ? ` · auf ${ev.timed} min` : '');
+  const what = (ev.swapped ? `getauscht (vorher: ${esc(ev.origName)})` : ev.eased ? `leichter: lockerer Dauerlauf statt ${esc(ev.origName)}` : ev.variant ? `angepasst: ${VARIANTS[ev.variant]}` : 'angepasst') + (ev.timed ? ` · auf ${ev.timed} min` : '') + (ev.hrSet != null ? ` · nach ${ev.hrSet ? 'Puls' : 'Pace'}` : '');
   return `<div class="note" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>Diese Einheit ist <b>${what}</b>.</span><button class="chip" data-act="restore" data-id="${ev.id}" style="flex:none">Zurücksetzen</button></div>`;
 }
 function corePace(steps){
   const hard = steps.filter(s => s.pace && stepPct(s) >= 75);
   if (!hard.length) return '';
   const top = hard.reduce((a,s)=>stepPct(s)>stepPct(a)?s:a, hard[0]);
-  return `${pctToPace(top.pace.end)}–${pctToPace(top.pace.start)}`;
+  return targetTxt(top).replace(' /km', '');
 }
 // Änderung probehalber berechnen, ohne sie zu speichern
 function tryChange(id, change){
   ST.time = ST.time || {};
-  const keep = { v: ST.variants[id], s: ST.swaps[id], t: ST.time[id] };
+  ST.hrm = ST.hrm || {};
+  const keep = { v: ST.variants[id], s: ST.swaps[id], t: ST.time[id], h: ST.hrm[id] };
+  if ('hr' in change){ if (change.hr == null) delete ST.hrm[id]; else ST.hrm[id] = change.hr; }
   if ('time' in change){ if (change.time) ST.time[id] = change.time; else delete ST.time[id]; }
   if ('variant' in change){ if (change.variant) ST.variants[id] = change.variant; else delete ST.variants[id]; }
   if ('swap' in change){ if (change.swap) ST.swaps[id] = change.swap; else delete ST.swaps[id]; if (change.swap) delete ST.variants[id]; }
@@ -1863,6 +1912,7 @@ function tryChange(id, change){
   if (keep.v) ST.variants[id] = keep.v; else delete ST.variants[id];
   if (keep.s) ST.swaps[id] = keep.s; else delete ST.swaps[id];
   if (keep.t) ST.time[id] = keep.t; else delete ST.time[id];
+  if (keep.h != null) ST.hrm[id] = keep.h; else delete ST.hrm[id];
   return after;
 }
 let PENDING = null;
@@ -1878,7 +1928,7 @@ function previewSheet(id, change, title){
   h += `<div class="note" style="display:flex;flex-direction:column;gap:4px">
     <span>Dauer: ${arrow(mins(now.dur)+' min', mins(next.dur)+' min')}</span>
     <span>Belastung: ${arrow(String(now.load), String(next.load))}</span>
-    ${corePace(next.steps) ? `<span>Pace Hauptteil: ${arrow(corePace(now.steps)+' /km', corePace(next.steps)+' /km')}</span>` : ''}</div>`;
+    ${corePace(next.steps) ? `<span>Hauptteil: ${arrow(corePace(now.steps), corePace(next.steps))}</span>` : ''}</div>`;
   h += `<div class="grid2"><button class="btn ghost" data-act="pcancel">Abbrechen</button><button class="btn lime" data-act="papply">Übernehmen</button></div>`;
   openSheet(h);
 }
@@ -1908,6 +1958,8 @@ function applyChange(id, change){
   if ('swap' in change){ if (change.swap){ ST.swaps[id] = change.swap; delete ST.variants[id]; } else delete ST.swaps[id]; }
   ST.time = ST.time || {};
   if ('time' in change){ if (change.time) ST.time[id] = change.time; else delete ST.time[id]; }
+  ST.hrm = ST.hrm || {};
+  if ('hr' in change){ if (change.hr == null) delete ST.hrm[id]; else ST.hrm[id] = change.hr; }
   ADJ = null;
   const ev = plan().find(e => String(e.id) === String(id));
   const c = ev ? compensate(ev) : null;
@@ -1983,7 +2035,7 @@ function splitByPlan(steps, stream){
     const pts = stream.filter(r => r[0] >= t0 && r[0] < t1 && r[1] > 0.5);
     if (pts.length){
       const v = pts.reduce((a,r)=>a+r[1],0)/pts.length, hrs = pts.filter(r=>r[2]>0), hr = hrs.length ? Math.round(hrs.reduce((a,r)=>a+r[2],0)/hrs.length) : null;
-      out.push(`${Math.round(s.duration/60*10)/10} min Ziel ${s.pace ? `${pctToPace(s.pace.end)}–${pctToPace(s.pace.start)}` : '–'} → gelaufen ${paceStr(v)}${hr ? `, HF ${hr}` : ''}${s.text ? ` (${s.text})` : ''}`);
+      out.push(`${Math.round(s.duration/60*10)/10} min Ziel ${s.pace ? targetTxt(s) : '–'} → gelaufen ${paceStr(v)}/km${hr ? `, HF ${hr}` : ''}${s.text ? ` (${s.text})` : ''}`);
     }
     t0 = t1;
   }
@@ -1991,7 +2043,8 @@ function splitByPlan(steps, stream){
 }
 function coachContext(focusId){
   const L = [];
-  L.push(`Heute: ${TODAY}. Schwellenpace ${pctToPace(100)}/km. LTHR ${SNAP.settings.lthr || '–'}, HFmax ${SNAP.settings.max_hr || '–'}.`);
+  const hz = SNAP.settings.hr_zones || [];
+  L.push(`Heute: ${TODAY}. Schwellenpace ${pctToPace(100)}/km. LTHR ${SNAP.settings.lthr || '–'}, HFmax ${SNAP.settings.max_hr || '–'}.${hz.length ? ` Pulszonen (bpm): ${hz.map((u,i) => `Z${i+1} ${i ? hz[i-1] : '<'}–${u}`).join(', ')}.` : ''}`);
   const r = readiness(), f = r.f;
   L.push(`Bereitschaft heute: ${r.score ?? 'noch keine Nachtwerte'}${r.score != null ? ` (${r.zone.name})` : ''}${r.why.length ? ` · ${r.why.map(w=>w.t).join(', ')}` : ''}. Trainingsform (CTL−ATL): ${f.tsb} (${f.zone.name}).`);
   const W = SNAP.wellness.filter(w => w.id > addDays(TODAY, -8));
@@ -2018,7 +2071,7 @@ Wenn der Nutzer ein Training möchte, beschreibe es kurz und hänge GENAU EINEN 
 \`\`\`workout
 {"name":"Kurzer Name","date":"YYYY-MM-DD oder leer","desc":"1-2 Sätze Zweck und Hinweise","steps":[{"min":10,"pct":[75,82],"text":"Einlaufen","kind":"warmup"},{"repeat":5,"steps":[{"min":3,"pct":[97,101],"text":"Schwelle"},{"min":1.5,"pct":[70,78],"text":"Traben"}]},{"min":8,"pct":[70,78],"text":"Auslaufen","kind":"cooldown"}]}
 \`\`\`
-"pct" ist Prozent der Schwellenpace (100 = Schwelle, höher = schneller): Erholung <80, locker 80–90, Tempo 90–96, Schwelle 96–102, VO2max >102. Plane passend zu Bereitschaft, Form und Wochenplan; keine zwei harten Tage direkt hintereinander.
+"pct" ist Prozent der Schwellenpace (100 = Schwelle, höher = schneller): Erholung <80, locker 80–90, Tempo 90–96, Schwelle 96–102, VO2max >102. Will der Nutzer nach Puls laufen, nutze statt "pct" das Feld "hr" mit einer Spanne in bpm (z. B. "hr":[123,135]); nutze dafür seine Pulszonen aus den Daten. Plane passend zu Bereitschaft, Form und Wochenplan; keine zwei harten Tage direkt hintereinander.
 
 DATEN:
 ${ctx}`;
@@ -2027,7 +2080,11 @@ function parseWorkouts(text){
   while ((m = re.exec(text))){
     try {
       const w = JSON.parse(m[1]); const steps = [];
-      const add = s => { const p = s.pct || [80,88]; steps.push(Object.assign({ duration: Math.max(10, Math.round((s.min || 1) * 60)), pace:{ start:+p[0], end:+(p[1] ?? p[0]), units:'%pace' } }, s.text ? { text:s.text } : {}, s.kind === 'warmup' ? { warmup:true } : s.kind === 'cooldown' ? { cooldown:true } : {})); };
+      const add = s => {
+        const hr = Array.isArray(s.hr) ? s.hr : null, toP = v => +v > 110 ? bpmToPct(+v) : lthrToPct(+v); // bpm, sonst %LTHR
+        const p = hr ? [toP(hr[0]), toP(hr[1] ?? hr[0])] : (s.pct || [80,88]);
+        steps.push(Object.assign({ duration: Math.max(10, Math.round((s.min || 1) * 60)), pace:{ start:+p[0], end:+(p[1] ?? p[0]), units:'%pace' } }, hr ? { hrMode:true } : {}, s.text ? { text:s.text } : {}, s.kind === 'warmup' ? { warmup:true } : s.kind === 'cooldown' ? { cooldown:true } : {}));
+      };
       for (const s of w.steps || []){ if (s.repeat) for (let i = 0; i < Math.min(20, s.repeat); i++) (s.steps || []).forEach(add); else add(s); }
       if (steps.length) out.push({ name: String(w.name || 'Coach-Workout').slice(0,60), date: /^\d{4}-\d\d-\d\d$/.test(w.date || '') ? w.date : null, desc: String(w.desc || ''), steps });
     } catch(e){}
@@ -2216,6 +2273,17 @@ document.addEventListener('change', e => {
   const M = Number(e.target.dataset.m), v = snapMin(e.target.value, M);
   ADJ.time = v === M ? null : v;
   keepSheetScroll(() => adjustSheet(ADJ.id));
+});
+
+/* ---------- Steuerung nach Pace oder Puls ---------- */
+function hrToggle(on, act, extra = ''){
+  const b = (v, l) => `<button class="chip" data-act="${act}" data-v="${v}" ${extra} aria-pressed="${on === (v === '1')}" style="flex:1;justify-content:center;${on === (v === '1') ? 'background:var(--lime);color:var(--bg)' : 'color:var(--lilac)'}">${l}</button>`;
+  return `<div style="display:flex;gap:6px;background:var(--bg2);border-radius:99px;padding:4px" role="group" aria-label="Steuerung">${b('0','Nach Pace')}${b('1','Nach Puls')}</div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'genhr' && GEN){ GEN.hr = b.dataset.v === '1'; render(); }
+  if (b.dataset.act === 'adjhr' && ADJ){ const ev = plan().find(x => String(x.id) === String(ADJ.id)); const orig = ev && ev.base.some(s => s.hrMode); const want = b.dataset.v === '1'; ADJ.hr = want === !!orig ? null : want; keepSheetScroll(() => adjustSheet(ADJ.id)); }
 });
 
 /* ---------- Sheets ---------- */

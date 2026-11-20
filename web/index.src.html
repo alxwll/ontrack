@@ -151,6 +151,29 @@ const nice = s => `${WD[wd(s)]}, ${parseD(s).getUTCDate()}. ${MON[parseD(s).getU
 const mins = sec => Math.round(sec/60);
 const paceStr = ms => { if(!ms) return '–'; const s=Math.round(1000/ms); return `${Math.floor(s/60)}:${d2(s%60)}`; };
 const pctToPace = p => paceStr(THR*p/100);
+/* ---------- Puls-Ziele: %LTHR <-> Intensität (Pace-%) für Farbe, Höhe und Belastung ---------- */
+function lerpMap(x, M, i, j){ for (let k = 1; k < M.length; k++){ const a = M[k-1], b = M[k]; if (x <= b[i] || k === M.length-1){ const t = (x - a[i]) / (b[i] - a[i]); return a[j] + t * (b[j] - a[j]); } } return x; }
+const LTHR = () => SNAP.settings.lthr || 165, HRMAX = () => SNAP.settings.max_hr || 190;
+// Deine Pulszonen (Obergrenzen in bpm) auf die fünf Intensitätszonen legen: Puls-Z2 = Locker usw.
+function hrMap(){
+  let z = (SNAP.settings.hr_zones || []).filter(Boolean);
+  if (z.length < 5){ const L = LTHR(); z = [L*.81, L*.89, L*.93, L*.99, HRMAX()]; }
+  if (z.length > 5) z = [z[0], z[1], z[2], z[3], z[z.length-1]];
+  return [[z[0]*.7, 55], [z[0], 80], [z[1], 90], [z[2], 96], [z[3], 102], [Math.max(z[4], z[3]+5), 112]];
+}
+const bpmToPct = b => lerpMap(b, hrMap(), 0, 1), pctToBpmRaw = p => lerpMap(p, hrMap(), 1, 0);
+const lthrToPct = l => bpmToPct(l / 100 * LTHR()), pctToLthr = p => pctToBpmRaw(p) / LTHR() * 100;
+const pctToBpm = p => Math.round(pctToBpmRaw(p));
+function hrZoneOf(bpm){ const z = SNAP.settings.hr_zones || []; const i = z.findIndex(u => bpm <= u); return 'Z' + (i < 0 ? Math.max(1, z.length) : i + 1); }
+function bpmRange(s){ const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end); return [pctToBpm(lo), pctToBpm(hi)]; }
+// Zieltext für Anzeigen: Pace oder Puls, je nach Schritt
+function targetTxt(s){
+  if (!s.pace) return '';
+  if (s.hrMode){ const [a, b] = bpmRange(s); return `${hrZoneOf(Math.round((a+b)/2))} · ${a}–${b} bpm`; }
+  const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end);
+  return `${pctToPace(hi)}–${pctToPace(lo)} /km`;
+}
+const withHr = (steps, on) => steps.map(s => s.steps ? Object.assign({}, s, { steps: withHr(s.steps, on) }) : s.pace ? Object.assign({}, s, { hrMode: !!on }) : s);
 const cleanName = n => (n||'').replace(/^IntervalCoach\s*-\s*/,'');
 // Eigene Trainings: von On. Track angelegt oder verändert. Nur die fasst die Automatik an.
 const OWN_MARK = '[on.track]';
@@ -174,6 +197,16 @@ const zoneOf = p => ZONES.find(z => p < z.max) || ZONES[4];
 function normStep(s){
   const t = Object.assign({}, s);
   const p = s.pace;
+  // Puls-Ziel (Zone, %LTHR, %HFmax oder bpm) in Intensität umrechnen, Schritt als Puls-Schritt markieren
+  if (s.hr && (!p || (p.start == null && p.value == null))){
+    const h = s.hr, z = SNAP.settings.hr_zones || [], L = LTHR();
+    const toL = v => h.units === '%hr' ? v * HRMAX() / L : h.units === '%lthr' ? v : v / L * 100;
+    let lo, hi;
+    if (h.units === 'hr_zone'){ const v = Math.max(1, Math.min(z.length || 5, Math.round(h.value ?? h.start ?? 2))); lo = (v === 1 ? (z[0] || 130) * 0.85 : z[v-2]) / L * 100; hi = Math.min(z[v-1] || L, HRMAX()) / L * 100; }
+    else if (h.start != null){ lo = toL(h.start); hi = toL(h.end ?? h.start); }
+    else if (h.value != null){ lo = toL(h.value) - 2; hi = toL(h.value) + 2; }
+    if (lo != null){ t.pace = { start: lthrToPct(lo), end: lthrToPct(hi), units:'%pace' }; t.hrMode = true; return t; }
+  }
   if (p){
     if (p.units === 'pace_zone' && p.value != null){
       const z = SNAP.settings.pace_zones || [80,90,96,102,999];
@@ -287,6 +320,8 @@ function buildEvent(e0){
   } else if (v) steps = applyVariant(base, v);
   const tm = ST.time && ST.time[e0.id];
   if (tm) steps = trimSteps(steps, tm);
+  const hm = ST.hrm && ST.hrm[e0.id];
+  if (hm != null) steps = withHr(steps, hm);
   const extra = ST.comp[e.id] || 0; // Ausgleich in Sekunden, wird auf den längsten lockeren Abschnitt gelegt
   if (extra && steps.length){
     steps = steps.map(s=>Object.assign({},s));
@@ -299,7 +334,7 @@ function buildEvent(e0){
   const ratio = origBase.length ? estLoad(steps)/Math.max(estLoad(origBase),0.1) : 1;
   const load = Math.round((e.icu_training_load||0) * ratio);
   const cat = eased ? category(Object.assign({}, e, { name: eased }), steps) : category(swT ? Object.assign({}, e, { name: swT.name, moving_time: base.reduce((a,x)=>a+x.duration,0) }) : e, base);
-  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, timed: tm || null, modified: !!(v || swT || tm) };
+  return { raw:e0, id:e.id, date:eventDate(e), eased, name: eased || (swT ? swT.name : cleanName(e.name)), origName: cleanName(e.name), type:e.type, steps, base, origSteps: origBase, dur, baseDur, load, baseLoad:e.icu_training_load||0, cat, variant:v, extra, swapped: swT ? swT.id : null, timed: tm || null, hrSet: hm ?? null, modified: !!(v || swT || tm || hm != null) };
 }
 function plan(){
   return SNAP.events.filter(e => e.category==='WORKOUT' && !ST.removed[e.id]).map(buildEvent).sort((a,b)=>a.date.localeCompare(b.date));
@@ -385,12 +420,16 @@ function profileSVG(steps, h, opts={}){
       if (b.s.duration < 150 || !b.s.pace) return;
       const inB = sm.filter(r => { const px = r[0]/tEnd*W; return px >= b.x0 && px <= b.x1; });
       if (inB.length < 2) return;
-      const v = inB.reduce((a,r)=>a+r[1],0)/inB.length, pct = v/THR*100;
+      let v = inB.reduce((a,r)=>a+r[1],0)/inB.length, pct = v/THR*100;
       const lo = Math.min(b.s.pace.start, b.s.pace.end), hi = Math.max(b.s.pace.start, b.s.pace.end);
-      const ok = pct >= lo - 2 && pct <= hi + 2;
+      let ok = pct >= lo - 2 && pct <= hi + 2, hrAvg = null, bLo, bHi;
+      if (b.s.hrMode){
+        const hs = pts.filter(r => { const px = r[0]/tEnd*W; return px >= b.x0 && px <= b.x1 && r[2] > 0; });
+        if (hs.length){ hrAvg = Math.round(hs.reduce((a,r)=>a+r[2],0)/hs.length); [bLo, bHi] = bpmRange(b.s); ok = hrAvg >= bLo - 3 && hrAvg <= bHi + 3; pct = lthrToPct(hrAvg / LTHR() * 100); }
+      }
       const y = (H - hOf(pct)).toFixed(1);
       line += `<line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#2A0F5C" stroke-width="5" vector-effect="non-scaling-stroke"></line><line x1="${(b.x0+2).toFixed(1)}" x2="${(b.x1-2).toFixed(1)}" y1="${y}" y2="${y}" stroke="#D7FF3D" stroke-width="2.5" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"></line>`;
-      avgIn[i] = { v, ok, pct, hi };
+      avgIn[i] = { v, ok, pct, hi, hr: hrAvg, bHi };
     });
   }
   // Antippbare Blöcke: Dauer und Pace-Spanne, bei gelaufenen Einheiten plus Schnitt
@@ -398,8 +437,9 @@ function profileSVG(steps, h, opts={}){
     blocks.forEach((b, i) => {
       const s = b.s; if (!s.pace) return;
       const lo = Math.min(s.pace.start, s.pace.end), hi = Math.max(s.pace.start, s.pace.end), a = avgIn[i];
-      let txt = `${durTxt(s.duration)} · ${pctToPace(hi)}–${pctToPace(lo)} /km`;
-      if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
+      let txt = `${durTxt(s.duration)} · ${targetTxt(s)}`;
+      if (a && a.hr) txt += ` · Ø ${a.hr} bpm ${a.ok ? '✓' : a.hr > a.bHi ? 'zu hoch' : 'zu niedrig'}`;
+      else if (a) txt += ` · Ø ${paceStr(a.v)} ${a.ok ? '✓' : a.pct > a.hi + 2 ? 'zu schnell' : 'zu langsam'}`;
       PFB.push({ si: i, x0: b.x0/W*100, x1: (b.x1+gap)/W*100, txt, ok: a ? a.ok : true, name: (zn => zn + (s.text && !s.text.toLowerCase().includes(zn.toLowerCase()) ? ` · ${s.text}` : ''))(zoneOf(stepPct(s)).name) });
     });
   }
@@ -538,7 +578,7 @@ function viewDetail(id){
   if (ev.modified && st.s!=='done') h += modBanner(ev);
   if (ev.steps.length && isRun(ev.type) && st.s!=='done') h += swapRow(ev);
   if (ev.steps.length){
-    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Antippen oder mit dem Finger ziehen für Dauer und Pace.</p></section>`;
+    h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Antippen oder mit dem Finger ziehen für Dauer und Ziel.</p></section>`;
   }
   if (st.s==='done' && st.act){
     const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
@@ -557,7 +597,7 @@ function fmtDur(sec){ return sec>=60 ? `${Math.round(sec/60*2)/2} min`.replace('
 function stepRow(s){
   const z = zoneOf(stepPct(s));
   const sw = zz => zz===ZONES[0] ? `border:2px solid ${zz.hex}` : `background:${zz.hex}`;
-  const pace = x => x.pace ? `${pctToPace(x.pace.end)}–${pctToPace(x.pace.start)} /km` : '';
+  const pace = x => targetTxt(x);
   if (s.pair){
     const z2 = zoneOf(stepPct(s.pair));
     return `<div class="s"><span class="c" style="${sw(z)}"></span><span class="x"><b>${s.n} × ${esc(stepLabel(s))} ${fmtDur(s.duration)}</b><span>${z.name} · ${pace(s)}</span><span style="display:block">+ ${esc(stepLabel(s.pair))} ${fmtDur(s.pair.duration)} · ${pace(s.pair)}</span></span><span class="dur">${fmtDur(s.n*(s.duration+s.pair.duration))}</span></div>`;
