@@ -2523,7 +2523,9 @@ function weatherHTML(ev, st){
   const hi = Math.min(23, Math.round(H));
   const night = (D.rise != null && H < D.rise) || (D.set != null && H > D.set);
   const [y, mo, da] = ev.date.split('-').map(Number);
-  let h = `<section style="${card}">`;
+  const bar = `<div role="radiogroup" aria-label="Laufzeit" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:var(--bg2);border-radius:14px;padding:4px">${WX_SLOTS.map(s => { const on = s === H; return `<button role="radio" aria-checked="${on}" data-act="wxslot" data-id="${ev.id}" data-v="${s}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0;border:none;border-radius:10px;font:inherit;cursor:pointer;background:${on ? 'var(--lime)' : 'transparent'};color:${on ? 'var(--bg)' : 'var(--lilac)'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${WX_SLOT_ICON[s]}</svg><span style="font-size:11px;font-weight:${on ? 700 : 400}">${s} Uhr</span></button>`; }).join('')}</div>`;
+  let h = done ? '' : `<div style="display:flex;flex-direction:column;gap:8px">${lab('WANN LÄUFST DU?')}${bar}</div>`;
+  h += `<section style="${card}">`;
   h += `<div class="row" style="align-items:center">${lab(`${done ? 'WETTER BEIM LAUF' : 'WETTER'} · ${WD[wd(ev.date)].toUpperCase()}, ${da}. ${WX_MON[mo - 1].toUpperCase()}`)}<button data-act="wxloc" style="background:none;border:none;color:var(--lilac);font:inherit;font-size:11px;font-weight:700;letter-spacing:.06em;padding:4px 0 4px 8px;cursor:pointer">📍 ${esc(wxLoc().name.toUpperCase())}</button></div>`;
   h += `<div style="display:flex;align-items:center;gap:12px;margin-top:6px"><span style="font-size:40px;font-weight:700;line-height:1">${Math.round(wxAt(D.t, H))}°</span><span class="small muted" style="line-height:1.4">${esc(wxCond(D.code[hi]))} um ${wxH(Math.round(H*4)/4)}<br>gefühlt ${Math.round(wxAt(D.a, H))}° · ${Math.round(D.max)}° / ${Math.round(D.min)}°</span><span style="margin-left:auto">${wxIcon(D.code[hi], night)}</span></div>`;
   h += wxChart(D, H, durMin);
@@ -2536,7 +2538,6 @@ function weatherHTML(ev, st){
   if (done) return h + wxFeedbackHTML(ev, D, H);
   const O = wxOutfit(D, H, ev);
   h += `<section style="${card};gap:10px">${lab('KLEIDUNG')}`;
-  h += `<div role="radiogroup" aria-label="Laufzeit" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:var(--bg);border-radius:14px;padding:4px">${WX_SLOTS.map(s => { const on = s === H; return `<button role="radio" aria-checked="${on}" data-act="wxslot" data-id="${ev.id}" data-v="${s}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0;border:none;border-radius:10px;font:inherit;cursor:pointer;background:${on ? 'var(--lime)' : 'transparent'};color:${on ? 'var(--bg)' : 'var(--lilac)'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${WX_SLOT_ICON[s]}</svg><span style="font-size:11px;font-weight:${on ? 700 : 400}">${s} Uhr</span></button>`; }).join('')}</div>`;
   h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${O.items.map(x => / oder /.test(x) ? `<span style="border:1.5px dashed var(--lilac);border-radius:99px;padding:5px 10px;font-size:13px">${esc(x)}</span>` : `<span style="background:var(--bg);border-radius:99px;padding:6px 11px;font-size:13px">${esc(x)}</span>`).join('')}</div>`;
   h += `<p class="small muted" style="line-height:1.5">${esc(O.why)}</p></section>`;
   return h;
