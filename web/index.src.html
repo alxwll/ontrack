@@ -591,6 +591,7 @@ function viewDetail(id){
     h += `</section>`;
   }
   if (st.s!=='done') h += `<p class="note">${esc(coachLine(ev))}</p><div class="grid2"><button class="btn ghost" data-act="menu" data-id="${ev.id}">Anpassen</button><button class="btn lime" data-act="noop">Auf der Uhr</button></div>`;
+  if (isRun(ev.type) && typeof weatherHTML === 'function') h += weatherHTML(ev, st);
   return h;
 }
 function fmtDur(sec){ return sec>=60 ? `${Math.round(sec/60*2)/2} min`.replace('.',',') : `${sec} s`; }

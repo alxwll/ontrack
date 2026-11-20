@@ -591,6 +591,7 @@ function viewDetail(id){
     h += `</section>`;
   }
   if (st.s!=='done') h += `<p class="note">${esc(coachLine(ev))}</p><div class="grid2"><button class="btn ghost" data-act="menu" data-id="${ev.id}">Anpassen</button><button class="btn lime" data-act="noop">Auf der Uhr</button></div>`;
+  if (isRun(ev.type) && typeof weatherHTML === 'function') h += weatherHTML(ev, st);
   return h;
 }
 function fmtDur(sec){ return sec>=60 ? `${Math.round(sec/60*2)/2} min`.replace('.',',') : `${sec} s`; }
@@ -2284,6 +2285,219 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'genhr' && GEN){ GEN.hr = b.dataset.v === '1'; render(); }
   if (b.dataset.act === 'adjhr' && ADJ){ const ev = plan().find(x => String(x.id) === String(ADJ.id)); const orig = ev && ev.base.some(s => s.hrMode); const want = b.dataset.v === '1'; ADJ.hr = want === !!orig ? null : want; keepSheetScroll(() => adjustSheet(ADJ.id)); }
+});
+
+/* ---------- Wetter & Kleidung ---------- */
+const WX_HOME = { lat:48.7758, lon:9.1829, name:'Stuttgart' };
+const WX_SLOTS = [8, 12, 15, 18];
+const WX_MON = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+const WX = { data:null, key:'', at:0, loading:false, err:false };
+ST.wxt = ST.wxt || {};
+function wxLoc(){ return ST.wxloc || WX_HOME; }
+function wxKey(){ const l = wxLoc(); return `${l.lat.toFixed(2)},${l.lon.toFixed(2)}`; }
+(function(){ try { const c = JSON.parse(localStorage.getItem('ontrack.wx') || 'null'); if (c && c.data){ WX.data = c.data; WX.key = c.key; WX.at = c.at; } } catch(e){} })();
+function wxLoad(){
+  const key = wxKey();
+  if (WX.loading || (WX.data && WX.key === key && Date.now() - WX.at < 3600e3) || (WX.err && WX.key === key)) return;
+  const l = wxLoc(); WX.loading = true;
+  const u = `https://api.open-meteo.com/v1/forecast?latitude=${l.lat}&longitude=${l.lon}&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_direction_10m&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min&timezone=Europe%2FBerlin&past_days=14&forecast_days=16`;
+  fetch(u).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
+    WX.data = d; WX.key = key; WX.at = Date.now(); WX.err = false;
+    try { localStorage.setItem('ontrack.wx', JSON.stringify({ data:d, key, at:WX.at })); } catch(e){}
+  }).catch(() => { WX.err = true; WX.key = key; }).finally(() => { WX.loading = false; if (/^#detail-/.test(location.hash)){ const y = scrollY; render(); scrollTo(0, y); } });
+}
+// Tagesdaten: Stundenwerte 0–23 plus Sonnenzeiten
+function wxDay(date){
+  const d = WX.data; if (!d || WX.key !== wxKey()) return null;
+  const i0 = d.hourly.time.indexOf(`${date}T00:00`); if (i0 < 0) return null;
+  const sl = k => d.hourly[k].slice(i0, i0 + 24);
+  const di = d.daily.time.indexOf(date);
+  const hh = s => { const m = String(s||'').match(/T(\d\d):(\d\d)/); return m ? +m[1] + m[2]/60 : null; };
+  return { t:sl('temperature_2m'), a:sl('apparent_temperature'), pp:sl('precipitation_probability'), mm:sl('precipitation'), code:sl('weather_code'), ws:sl('wind_speed_10m'), wd:sl('wind_direction_10m'),
+    rise: hh(d.daily.sunrise[di]), set: hh(d.daily.sunset[di]), max: d.daily.temperature_2m_max[di], min: d.daily.temperature_2m_min[di] };
+}
+const wxAt = (arr, h) => { const a = Math.max(0, Math.min(23, Math.floor(h))), b = Math.min(23, a + 1), f = h - Math.floor(h); return arr[a] + ((arr[b] ?? arr[a]) - arr[a]) * f; };
+const wxHM = h => `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2,'0')}`.replace(/:60$/, ':59');
+const wxH = h => h % 1 ? `${wxHM(h)} Uhr` : `${h} Uhr`;
+function wxCond(c){
+  if (c === 0) return 'Klar'; if (c === 1) return 'Überwiegend klar'; if (c === 2) return 'Teils bewölkt'; if (c === 3) return 'Bedeckt';
+  if (c === 45 || c === 48) return 'Nebel'; if (c >= 51 && c <= 57) return 'Nieselregen'; if (c === 66 || c === 67) return 'Gefrierender Regen';
+  if (c >= 61 && c <= 65) return 'Regen'; if (c >= 71 && c <= 77) return 'Schnee'; if (c >= 80 && c <= 82) return 'Regenschauer'; if (c >= 85 && c <= 86) return 'Schneeschauer'; if (c >= 95) return 'Gewitter'; return '';
+}
+function wxIcon(c, night){
+  const cloud = (x, y, f) => `<path transform="translate(${x} ${y})" d="M0 16h22a7 7 0 0 0 0-14 10 10 0 0 0-19 3A5.5 5.5 0 0 0 0 16z" fill="${f||'#F1EAFF'}"/>`;
+  const orb = (x, y, r) => night ? `<path transform="translate(${x-r} ${y-r})" d="M${r*2} ${r*1.2}A${r} ${r} 0 1 1 ${r*0.8} 0a${r*0.8} ${r*0.8} 0 0 0 ${r*1.2} ${r*1.2}z" fill="#E4D9FF"/>` : `<circle cx="${x}" cy="${y}" r="${r}" fill="#FFD84D"/>`;
+  const drops = col => `<g stroke="${col}" stroke-width="2.5" stroke-linecap="round"><path d="M15 27l-2 5M23 27l-2 5M31 27l-2 5"/></g>`;
+  let b;
+  if (c <= 1) b = orb(22, 17, 10);
+  else if (c === 2) b = orb(16, 13, 8) + cloud(14, 14);
+  else if (c === 3) b = cloud(10, 8);
+  else if (c === 45 || c === 48) b = `<g stroke="#E4D9FF" stroke-width="3" stroke-linecap="round"><path d="M6 12h32M10 19h28M6 26h30"/></g>`;
+  else if ((c >= 71 && c <= 77) || c === 85 || c === 86) b = cloud(10, 6) + `<g fill="#F1EAFF"><circle cx="15" cy="29" r="2"/><circle cx="23" cy="31" r="2"/><circle cx="31" cy="29" r="2"/></g>`;
+  else if (c >= 95) b = cloud(10, 6, '#C9B6FF') + `<path d="M24 24l-5 7h5l-3 6" fill="none" stroke="#FFD84D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+  else b = cloud(10, 6) + drops('#7FB8FF');
+  return `<svg width="44" height="38" viewBox="0 0 44 38" aria-hidden="true">${b}</svg>`;
+}
+const wxDir = d => ['N','NO','O','SO','S','SW','W','NW'][Math.round(((d % 360) + 360) % 360 / 45) % 8];
+// Regen je Stunde h..h+1 (Open-Meteo zählt den Niederschlag der Vorstunde)
+const wxRain = (D, h) => ({ mm: D.mm[h + 1] ?? D.mm[h] ?? 0, pp: Math.max(D.pp[h] || 0, D.pp[h + 1] || 0) });
+const wxWet = r => r.mm >= 0.1 && r.pp >= 30;
+function wxWindows(D, from = 6, to = 21){
+  const w = []; let cur = null;
+  for (let h = from; h < to; h++){ if (wxWet(wxRain(D, h))){ if (cur && cur.b === h) cur.b = h + 1; else w.push(cur = { a:h, b:h + 1 }); } }
+  return w;
+}
+function wxDefaultSlot(){
+  const hs = SNAP.activities.filter(a => isRun(a.type)).map(a => { const m = String(a.start_date_local).match(/T(\d\d):(\d\d)/); return m ? +m[1] + m[2]/60 : null; }).filter(x => x != null).sort((a, b) => a - b);
+  if (!hs.length) return 8;
+  const med = hs[Math.floor(hs.length / 2)];
+  return WX_SLOTS.reduce((best, s) => Math.abs(s - med) < Math.abs(best - med) ? s : best, 8);
+}
+function wxChart(D, H, durMin){
+  // Fenster 8–20 Uhr, wächst mit, wenn der Lauf früher startet oder später endet
+  const a0 = Math.max(5, Math.min(8, Math.floor(H))), b0 = Math.min(23, Math.max(20, Math.ceil(H + durMin / 60)));
+  const X = h => 10 + (Math.max(a0, Math.min(b0, h)) - a0) * 270 / (b0 - a0), bw = 270 / (b0 - a0);
+  const hrs = Array.from({ length:b0 - a0 + 1 }, (_, i) => i + a0);
+  const ts = hrs.map(h => D.t[h]); const lo = Math.min(...ts), hi = Math.max(...ts), rg = Math.max(hi - lo, 4);
+  const Y = t => 46 - (t - lo) / rg * 30;
+  const step = Math.max(2, Math.round((b0 - a0) / 4));
+  const tl = []; for (let h = a0; h < b0 - 1; h += step) tl.push(h); tl.push(b0);
+  const ax = []; for (let h = a0 + (a0 % 2); h <= b0; h += 2) ax.push(h);
+  let s = `<svg viewBox="0 0 300 100" width="100%" style="display:block;margin-top:8px" aria-hidden="true">`;
+  s += `<path d="${hrs.map((h, i) => `${i ? 'L' : 'M'}${X(h).toFixed(1)} ${Y(D.t[h]).toFixed(1)}`).join(' ')}" fill="none" stroke="#D7FF3D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+  s += `<g font-size="11" font-family="inherit" fill="#F1EAFF" text-anchor="middle">${tl.map(h => `<text x="${Math.min(288, Math.max(12, X(h))).toFixed(1)}" y="${(Y(D.t[h]) - 8).toFixed(1)}">${Math.round(D.t[h])}°</text>`).join('')}</g>`;
+  s += `<line x1="5" y1="80" x2="285" y2="80" stroke="#C9B6FF" stroke-opacity=".25"/>`;
+  // Regenbalken: Menge als Höhe, Wahrscheinlichkeit als Deckkraft
+  let bars = '', labs = '';
+  for (const w of wxWindows(D, a0, b0)){
+    let pk = w.a;
+    for (let h = w.a; h < w.b; h++){
+      const r = wxRain(D, h), ht = Math.min(22, 4 + r.mm * 7);
+      bars += `<rect x="${(X(h) + bw * 0.1).toFixed(1)}" y="${(80 - ht).toFixed(1)}" width="${(bw * 0.8).toFixed(1)}" height="${ht.toFixed(1)}" rx="2" fill="#7FB8FF" fill-opacity="${(0.4 + 0.6 * r.pp / 100).toFixed(2)}"/>`;
+      if (r.mm > wxRain(D, pk).mm) pk = h;
+    }
+    const r = wxRain(D, pk);
+    labs += `<text x="${(X(pk) + bw / 2).toFixed(1)}" y="${(80 - Math.min(22, 4 + r.mm * 7) - 4).toFixed(1)}">${String(Math.round(r.mm * 10) / 10).replace('.', ',')}</text>`;
+  }
+  if (bars) s += bars + `<g font-size="9.5" font-family="inherit" fill="#7FB8FF" text-anchor="middle">${labs}</g>`;
+  // Laufzeit: Punkt auf der Kurve und Spanne auf der Grundlinie
+  s += `<rect x="${X(H).toFixed(1)}" y="78.5" width="${Math.max(4, X(H + durMin / 60) - X(H)).toFixed(1)}" height="3" rx="1.5" fill="#D7FF3D"/>`;
+  s += `<circle cx="${X(H).toFixed(1)}" cy="${Y(wxAt(D.t, H)).toFixed(1)}" r="4.5" fill="#D7FF3D" stroke="#3A1A78" stroke-width="2"/>`;
+  s += `<g font-size="10" font-family="inherit" fill="#C9B6FF" text-anchor="middle">${ax.map(h => `<text x="${X(h).toFixed(1)}" y="94">${h}</text>`).join('')}</g>`;
+  return s + `</svg>`;
+}
+function wxRun(D, H, durMin){
+  const E = H + durMin / 60;
+  let wet = 0, firstWet = null, lastWet = null, mmMax = 0;
+  for (let h = Math.floor(H); h < Math.ceil(E); h++){
+    const r = wxRain(D, h); if (!wxWet(r)) continue;
+    const ov = Math.max(0, Math.min(h + 1, E) - Math.max(h, H)); if (!ov) continue;
+    wet += ov * 60; mmMax = Math.max(mmMax, r.mm);
+    if (firstWet == null) firstWet = Math.max(h, H); lastWet = Math.min(h + 1, E);
+  }
+  let wind = 0; for (let h = Math.floor(H); h <= Math.min(23, Math.floor(E)); h++) wind = Math.max(wind, D.ws[h] || 0);
+  return { E, t0:wxAt(D.t, H), t1:wxAt(D.t, Math.min(23, E)), a0:wxAt(D.a, H), wet:Math.round(wet), firstWet, lastWet, mmMax, wind, dirDeg:D.wd[Math.min(23, Math.round(H))],
+    darkStart: D.rise != null && H < D.rise, darkEnd: D.set != null && E > D.set, sunny: (D.code[Math.round(Math.min(23, (H + E) / 2))] || 9) <= 1 };
+}
+// Kleiderregeln nach Alex' Schrank und Schwellen
+function wxOutfit(D, H, ev){
+  const R = wxRun(D, H, ev.dur / 60);
+  const hard = ev.cat && ev.cat.hard, long = ev.dur >= 4500;
+  const tb = R.t0 + (hard ? 2 : 0);
+  const it = [];
+  let winterJacket = false;
+  if (tb >= 17) it.push('Kurzarm-Shirt');
+  else if (tb >= 11) it.push('Dünner Longsleeve');
+  else if (tb > -3) it.push('Dicker Longsleeve');
+  else { it.push('Dicker Longsleeve', 'Winter-Laufjacke'); winterJacket = true; }
+  if (tb < 3 && !winterJacket) it.unshift('Base Layer');
+  if (tb >= 15) it.push('Kurze Hose');
+  else if (tb >= 9.5) it.push('Dünne Tights');
+  else if (tb > 2) it.push('Mittlere Tights');
+  else it.push('Thermo-Tights');
+  let jacket = '';
+  if (!winterJacket && R.wet >= 10) jacket = 'rain';
+  else if (!winterJacket && R.wind >= 20 && tb < 16) jacket = 'wind';
+  if (jacket) it.push('Windjacke');
+  else if (!winterJacket && R.wind >= 12 && tb < 10) it.push('Windweste');
+  if (tb < 2) it.push('Mittlere Handschuhe'); else if (tb < 7) it.push('Dünne Handschuhe');
+  if (tb < 4) it.push('Mütze'); else if (tb < 7) it.push('Buff');
+  if (tb <= 0) it.push('Dicke Socken');
+  if (R.t0 >= 22 && R.sunny) it.push('Sonnencap');
+  if (R.darkStart || R.darkEnd) it.push('Stirnlampe');
+  // Begründung: Startwert, dann die zwei wichtigsten Änderungen unterwegs
+  const T = x => `${Math.round(x)}°`;
+  let why = `Um ${wxH(H)} sind es ${T(R.t0)}${Math.abs(R.a0 - R.t0) >= 2 ? `, gefühlt ${T(R.a0)}` : ''}.`;
+  if (hard && tb < 15) why += ' Die harten Abschnitte heizen dich auf, deshalb eine Stufe leichter.';
+  else if (long && tb < 10) why += ' Beim langen ruhigen Lauf wird dir kaum richtig warm.';
+  const ex = [];
+  if (R.wet >= 10){
+    const fromStart = R.firstWet <= H + 0.05, toEnd = R.lastWet >= R.E - 0.05;
+    if (fromStart && toEnd) ex.push('Es regnet fast den ganzen Lauf über, die Windjacke hält nur leichten Regen ab.');
+    else if (toEnd) ex.push(`Ab ${wxH(R.firstWet)} regnet es, die letzten ${R.wet} Minuten werden nass.`);
+    else if (fromStart) ex.push(`Zu Beginn regnet es noch, bis etwa ${wxH(R.lastWet)}.`);
+    else ex.push(`Zwischen ${wxHM(R.firstWet)} und ${wxHM(R.lastWet)} Uhr zieht ein Schauer durch.`);
+  }
+  if (R.darkStart) ex.push(`Die Sonne geht erst um ${wxHM(D.rise)} auf, die Stirnlampe muss mit.`);
+  else if (R.darkEnd) ex.push(`Sonnenuntergang ist um ${wxHM(D.set)}, die Stirnlampe muss mit.`);
+  if (R.t1 - R.t0 >= 3 && it.some(x => /Mütze|Handschuhe|Buff/.test(x))) ex.push(`Bis zum Ende steigt es auf ${T(R.t1)}, Mütze und Handschuhe kannst du dann ausziehen.`);
+  if (jacket === 'wind') ex.push(`Der Wind kommt mit ${Math.round(R.wind)} km/h aus ${wxDir(R.dirDeg)}, die Windjacke hält ihn ab.`);
+  return { items:it, why: [why, ...ex.slice(0, 2)].join(' '), R };
+}
+const WX_SLOT_ICON = {
+  8:'<path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 7v3M5.5 11.5l1.8 1.3M18.5 11.5l-1.8 1.3"/>',
+  12:'<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/>',
+  15:'<circle cx="9" cy="10" r="3.5"/><path d="M13 19h6a3 3 0 0 0 0-6 4.5 4.5 0 0 0-8.5 1.5A2.3 2.3 0 0 0 13 19z"/>',
+  18:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'
+};
+function weatherHTML(ev, st){
+  const done = st.s === 'done';
+  if (!done && ev.date < TODAY) return '';
+  wxLoad();
+  const D = wxDay(ev.date);
+  const card = 'background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column';
+  const lab = t => `<span class="small" style="letter-spacing:.06em;color:var(--lilac);font-weight:700;font-size:11px">${t}</span>`;
+  if (!D){
+    if (WX.loading || (!WX.data && !WX.err)) return `<section style="${card}">${lab('WETTER')}<p class="small muted" style="margin-top:6px">Lädt die Vorhersage…</p></section>`;
+    if (WX.err) return `<section style="${card}">${lab('WETTER')}<p class="small muted" style="margin-top:6px">Gerade keine Wetterdaten erreichbar.</p></section>`;
+    if (ev.date > TODAY) return `<section style="${card}">${lab('WETTER')}<p class="small muted" style="margin-top:6px">Die Vorhersage für diesen Tag gibt's ab ${nice(addDays(ev.date, -15))}.</p></section>`;
+    return '';
+  }
+  let H, durMin = ev.dur / 60;
+  if (done && st.act){ const m = String(st.act.start_date_local).match(/T(\d\d):(\d\d)/); H = m ? +m[1] + m[2] / 60 : 12; durMin = (st.act.moving_time || ev.dur) / 60; }
+  else H = ST.wxt[ev.id] || wxDefaultSlot();
+  const hi = Math.min(23, Math.round(H));
+  const night = (D.rise != null && H < D.rise) || (D.set != null && H > D.set);
+  const [y, mo, da] = ev.date.split('-').map(Number);
+  let h = `<section style="${card}">`;
+  h += `<div class="row" style="align-items:center">${lab(`${done ? 'WETTER BEIM LAUF' : 'WETTER'} · ${WD[wd(ev.date)].toUpperCase()}, ${da}. ${WX_MON[mo - 1].toUpperCase()}`)}<button data-act="wxloc" style="background:none;border:none;color:var(--lilac);font:inherit;font-size:11px;font-weight:700;letter-spacing:.06em;padding:4px 0 4px 8px;cursor:pointer">📍 ${esc(wxLoc().name.toUpperCase())}</button></div>`;
+  h += `<div style="display:flex;align-items:center;gap:12px;margin-top:6px"><span style="font-size:40px;font-weight:700;line-height:1">${Math.round(wxAt(D.t, H))}°</span><span class="small muted" style="line-height:1.4">${esc(wxCond(D.code[hi]))} um ${wxH(Math.round(H*4)/4)}<br>gefühlt ${Math.round(wxAt(D.a, H))}° · ${Math.round(D.max)}° / ${Math.round(D.min)}°</span><span style="margin-left:auto">${wxIcon(D.code[hi], night)}</span></div>`;
+  h += wxChart(D, H, durMin);
+  const W = wxWindows(D), R = wxRun(D, H, durMin);
+  const whole = W.length === 1 && W[0].a <= 7 && W[0].b >= 20;
+  const rainTxt = !W.length ? 'trocken' : whole ? 'ganztags' : W.length === 1 ? `${W[0].a}–${W[0].b} Uhr` : `${W.length} Schauer`;
+  const tile = (t, hl) => `<span style="background:var(--bg);border-radius:10px;padding:7px 4px;${hl ? `outline:1.5px solid ${hl === true ? '#7FB8FF' : hl};` : ''}">${t}</span>`;
+  h += `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:10px;font-size:12px;text-align:center">${tile(`💨 ${Math.round(D.ws[hi])} km/h ${wxDir(D.wd[hi])}`)}${tile(`💧 ${rainTxt}`, R.wet >= 10)}${tile(`🌅 ${D.rise != null ? wxHM(D.rise) : '–'} · ${D.set != null ? wxHM(D.set) : '–'}`, (R.darkStart || R.darkEnd) && '#FFD84D')}</div>`;
+  h += `</section>`;
+  if (done) return h;
+  const O = wxOutfit(D, H, ev);
+  h += `<section style="${card};gap:10px">${lab('KLEIDUNG')}`;
+  h += `<div role="radiogroup" aria-label="Laufzeit" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:var(--bg);border-radius:14px;padding:4px">${WX_SLOTS.map(s => { const on = s === H; return `<button role="radio" aria-checked="${on}" data-act="wxslot" data-id="${ev.id}" data-v="${s}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0;border:none;border-radius:10px;font:inherit;cursor:pointer;background:${on ? 'var(--lime)' : 'transparent'};color:${on ? 'var(--bg)' : 'var(--lilac)'}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${WX_SLOT_ICON[s]}</svg><span style="font-size:11px;font-weight:${on ? 700 : 400}">${s} Uhr</span></button>`; }).join('')}</div>`;
+  h += `<div style="display:flex;flex-wrap:wrap;gap:6px">${O.items.map(x => `<span style="background:var(--bg);border-radius:99px;padding:6px 11px;font-size:13px">${esc(x)}</span>`).join('')}</div>`;
+  h += `<p class="small muted" style="line-height:1.5">${esc(O.why)}</p></section>`;
+  return h;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act;
+  if (a === 'wxslot'){ ST.wxt[b.dataset.id] = +b.dataset.v; save(); const y = scrollY; render(); scrollTo(0, y); }
+  if (a === 'wxloc'){ const cur = ST.wxloc ? 'gps' : 'home'; openSheet(`<h2>Wetter für</h2><p class="small muted">Die Vorhersage gilt für diesen Ort.</p><button class="btn${cur === 'home' ? ' lime' : ''}" data-act="wxset" data-v="home">Stuttgart</button><button class="btn${cur === 'gps' ? ' lime' : ''}" data-act="wxset" data-v="gps">Aktueller Standort</button>`); }
+  if (a === 'wxset'){
+    const done = loc => { if (loc) ST.wxloc = loc; else delete ST.wxloc; WX.err = false; save(); closeSheet(); const y = scrollY; render(); scrollTo(0, y); };
+    if (b.dataset.v === 'home') return done(null);
+    if (!navigator.geolocation) return toast('Standort ist hier nicht verfügbar.');
+    navigator.geolocation.getCurrentPosition(p => done({ lat:+p.coords.latitude.toFixed(3), lon:+p.coords.longitude.toFixed(3), name:'Dein Standort' }), () => toast('Kein Zugriff auf den Standort.'), { timeout:10000, maximumAge:3600e3 });
+  }
 });
 
 /* ---------- Sheets ---------- */
