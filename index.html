@@ -2564,6 +2564,16 @@ function hrZ5(bpm){
   if (z.length > 5) z = [z[0], z[1], z[2], z[3], z[z.length-1]];
   const i = z.findIndex(u => bpm <= u); return i < 0 ? 4 : i;
 }
+function hrBaseline(ev){
+  const from = addDays(ev.date, -60);
+  const runs = SNAP.activities.filter(a => isRun(a.type) && a.average_heartrate > 90 && a.average_speed > 1.5 && (a.moving_time || 0) >= 900 && dateOf(a.start_date_local) >= from && dateOf(a.start_date_local) < ev.date);
+  if (runs.length < 4) return null;
+  const xs = runs.map(a => a.average_speed), ys = runs.map(a => a.average_heartrate), n = xs.length;
+  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  const sxx = xs.reduce((a, x) => a + (x - mx) ** 2, 0), sxy = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0);
+  const b = sxx > 1e-6 ? Math.max(5, Math.min(60, sxy / sxx)) : 25;
+  return { n, at: v => my + b * (v - mx) };
+}
 const paceZ5 = pct => ZONES.indexOf(zoneOf(pct));
 function zoneAnalysis(ev, stream){
   const steps = ev.steps, total = steps.reduce((a, s) => a + (s.duration || 0), 0);
@@ -2572,8 +2582,12 @@ function zoneAnalysis(ev, stream){
   const bounds = []; let acc = 0; for (const s of steps){ bounds.push([acc, acc + s.duration]); acc += s.duration; }
   const per = steps.map(() => ({ dt:0, inT:0, sum:0, n:0, hi:0, lo:0 }));
   const paceIst = [0,0,0,0,0], hrIst = [0,0,0,0,0], paceSoll = [0,0,0,0,0], hrSoll = [0,0,0,0,0];
-  let hrUp = 0, hrDown = 0, hrPaceDt = 0, hasHr = false;
-  steps.forEach(s => { if (!s.pace) return; const p = stepPct(s); paceSoll[paceZ5(p)] += s.duration; hrSoll[Math.max(1, hrZ5(pctToBpm(p)))] += s.duration; });
+  let hrPaceDt = 0, hasHr = false;
+  // Soll-Puls gibt es nur für Puls-Schritte. Pace-Workouts haben in Intervals kein Puls-Ziel.
+  steps.forEach(s => { if (!s.pace) return; const p = stepPct(s); if (s.hrMode){ const [a, b] = bpmRange(s); hrSoll[hrZ5((a + b) / 2)] += s.duration; } else paceSoll[paceZ5(p)] += s.duration; });
+  const base = hrBaseline(ev), res = [];
+  const steady = x => x.pace && !x.hrMode && x.duration >= 720 && !x.warmup && !x.cooldown && !/ein|aus|warm|cool/i.test(x.text || stepLabel(x));
+  const longest = steps.reduce((bi, x, i) => steady(x) && (bi < 0 || x.duration > steps[bi].duration) ? i : bi, -1), dec = [];
   stream.forEach((r, k) => {
     const dt = Math.min(60, Math.max(0, ((stream[k+1] || [r[0] + 20])[0]) - r[0]));
     const v = r[1], hr = r[2];
@@ -2593,14 +2607,24 @@ function zoneAnalysis(ev, stream){
       const pct = v / THR * 100;
       P.dt += dt; P.sum += v * dt; P.n += dt;
       if (pct < lo - 2) P.lo += dt; else if (pct > hi + 2) P.hi += dt; else P.inT += dt;
-      if (hr > 0){ const want = Math.max(1, hrZ5(pctToBpm(stepPct(s)))), got = hrZ5(hr); hrPaceDt += dt; if (got > want) hrUp += dt; else if (got < want) hrDown += dt; }
+      if (hr > 0){ hrPaceDt += dt; if (base) res.push([hr - base.at(v), dt]); if (si === longest) dec.push([tp, v, hr]); }
     }
   });
   // Abschnitte unter einer Minute zählen nicht (GPS zu ungenau)
   let judged = 0, hit = 0;
   steps.forEach((s, i) => { if (s.pace && s.duration >= 60 && per[i].dt){ judged += per[i].dt; hit += per[i].inT; } });
   if (!judged) return null;
-  return { steps, per, paceIst, hrIst, paceSoll, hrSoll, hasHr, rate: hit / judged, hrUp: hrPaceDt ? hrUp / hrPaceDt : 0, hrDown: hrPaceDt ? hrDown / hrPaceDt : 0, hrPaceDt };
+  // Puls gegenüber deinem Normalwert bei diesem Tempo
+  const rw = res.reduce((a, r) => a + r[1], 0), delta = rw ? res.reduce((a, r) => a + r[0] * r[1], 0) / rw : null;
+  const vAvg = hrPaceDt ? stream.filter(r => r[1] > 0.5 && r[2] > 0).reduce((a, r) => a + r[1], 0) / Math.max(1, stream.filter(r => r[1] > 0.5 && r[2] > 0).length) : null;
+  // Entkopplung (Pa:HR) im längsten gleichmäßigen Abschnitt: Tempo pro Herzschlag, erste gegen zweite Hälfte
+  let decoupling = null;
+  if (dec.length >= 20){
+    const mid = (dec[0][0] + dec[dec.length - 1][0]) / 2, ef = arr => arr.reduce((a, r) => a + r[1], 0) / arr.reduce((a, r) => a + r[2], 0);
+    const h1 = dec.filter(r => r[0] < mid), h2 = dec.filter(r => r[0] >= mid);
+    if (h1.length > 5 && h2.length > 5){ const e1 = ef(h1), e2 = ef(h2); decoupling = (e1 - e2) / e1 * 100; }
+  }
+  return { steps, per, paceIst, hrIst, paceSoll, hrSoll, hasHr, rate: hit / judged, hrPaceDt, delta, base, vAvg, decoupling, decName: longest >= 0 ? (steps[longest].text || stepLabel(steps[longest])) : '' };
 }
 // Bewertung über mehrere Schritte (Wiederholungen einer Ablauf-Zeile)
 function zoneMark(A, idx){
@@ -2653,12 +2677,19 @@ function zoneSentence(A){
     else if (easyUp > hardDown) out.push('Die lockeren Teile waren zu flott. Langsamer bringt hier genauso viel.');
     else if (hardDown) out.push('In den harten Abschnitten fehlte etwas Tempo.');
   }
-  if (A.hrPaceDt > 300){
-    if (A.hrUp >= 0.3) out.push('Der Puls lag oft eine Zone über Plan. Das deutet auf Müdigkeit oder Wärme hin.');
-    else if (A.hrDown >= 0.4) out.push('Der Puls blieb unter Plan, die Pace hat dich wenig gekostet.');
-    else if (out.length < 3) out.push('Puls und Pace passten gut zusammen.');
+  if (A.hrPaceDt > 300 && A.delta != null && A.base){
+    const norm = Math.round(A.base.at(A.vAvg)), now = Math.round(norm + A.delta), d = Math.round(A.delta);
+    if (d >= 6) out.push(`Dein Puls lag ${d} Schläge über deinem Normalwert für dieses Tempo. Das deutet auf Müdigkeit, Wärme oder wenig Schlaf hin.`);
+    else if (d <= -6) out.push(`Dein Puls lag ${-d} Schläge unter deinem Normalwert für dieses Tempo, ein gutes Zeichen.`);
+    else out.push(`Bei ${paceStr(A.vAvg)} liegt dein Puls normal bei etwa ${norm}, heute ${now}. Das passt.`);
   }
-  return out.slice(0, 3).join(' ');
+  if (A.decoupling != null){
+    const dc = Math.round(A.decoupling), n = A.decName ? `Im Abschnitt „${A.decName}“` : 'Im langen Abschnitt';
+    if (dc < 5) out.push(`${n} blieb der Puls stabil (Entkopplung ${Math.max(0, dc)} %), sauber aerob.`);
+    else if (dc <= 10) out.push(`${n} stieg der Puls um ${dc} % bei gleichem Tempo, gegen Ende wurde es anstrengender.`);
+    else out.push(`${n} stieg der Puls deutlich (${dc} %), das war mehr als locker.`);
+  }
+  return out.slice(0, 4).join(' ');
 }
 function zonesHTML(A){
   if (!A) return '';
@@ -2666,7 +2697,7 @@ function zonesHTML(A){
   const bars = (ist, soll, name) => {
     const ti = ist.reduce((a, b) => a + b, 0), ts = soll.reduce((a, b) => a + b, 0); if (!ti) return '';
     const seg = (arr, t) => arr.map((v, i) => v ? `<div style="width:${(v / t * 100).toFixed(1)}%;background:${ZONES[i].hex}"></div>` : '').join('');
-    return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px"><span style="font-weight:700;font-size:14px">${name}</span><span class="small muted">Ist · Soll</span></div>`
+    return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px"><span style="font-weight:700;font-size:14px">${name}</span><span class="small muted">${ts ? 'Ist · Soll' : 'Ist · ohne Puls-Ziel'}</span></div>`
       + `<div style="display:flex;height:14px;border-radius:6px;overflow:hidden;margin-top:6px">${seg(ist, ti)}</div>`
       + (ts ? `<div style="display:flex;height:4px;border-radius:3px;overflow:hidden;margin-top:3px;opacity:.55">${seg(soll, ts)}</div>` : '')
       + `<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;margin-top:6px;font-size:11px;color:var(--lilac);text-align:center">${ist.map((v, i) => `<span>Z${i+1} ${fmt(v)}</span>`).join('')}</div>`;
