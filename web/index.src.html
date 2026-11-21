@@ -580,6 +580,8 @@ function viewDetail(id){
   if (ev.steps.length){
     h += `<section style="background:var(--bg2);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px">${profileSVG(ev.steps,140,{faded:!!stream,stream,tap:true})}${legendHTML()}<p class="small muted">${stream?'Weiß: deine Pace geglättet, blass die Rohdaten. Gestrichelt: dein Schnitt pro Abschnitt. ':''}Antippen oder mit dem Finger ziehen für Dauer und Ziel.</p></section>`;
   }
+  const ZA = st.s==='done' && stream && ev.steps.length && typeof zoneAnalysis === 'function' ? zoneAnalysis(ev, stream) : null;
+  if (ZA) h += zonesHTML(ZA);
   if (st.s==='done' && st.act){
     const aid = typeof aiDebriefHTML === 'function' ? aiDebriefHTML(ev, st.act) : '';
     h += `<section class="card" style="display:flex;flex-direction:column;gap:8px"><div class="row"><h2>Coach</h2>${LIVE ? `<button class="chip" data-act="cask" data-id="${ev.id}" data-n="${esc(ev.name)}" style="color:var(--lime)">Coach fragen</button>` : ''}</div>${aid || `<p style="line-height:1.5">${esc(debrief(ev, st.act, stream))}</p>`}</section>`;
@@ -587,7 +589,7 @@ function viewDetail(id){
   }
   if (ev.steps.length){
     h += `<section class="steps"><h2 style="margin-bottom:6px">Ablauf</h2>`;
-    let si = 0; for (const s of compress(ev.steps)){ h += stepRow(s).replace('<div class="s">', `<div class="s" data-si="${si}" style="cursor:pointer;border-radius:12px">`); si += s.pair ? 2*s.n : s.n; }
+    let si = 0; for (const s of compress(ev.steps)){ h += (ZA ? markRow(stepRow(s), ZA, s, si) : stepRow(s)).replace('<div class="s">', `<div class="s" data-si="${si}" style="cursor:pointer;border-radius:12px">`); si += s.pair ? 2*s.n : s.n; }
     h += `</section>`;
   }
   if (st.s!=='done') h += `<p class="note">${esc(coachLine(ev))}</p><div class="grid2"><button class="btn ghost" data-act="menu" data-id="${ev.id}">Anpassen</button><button class="btn lime" data-act="noop">Auf der Uhr</button></div>`;
